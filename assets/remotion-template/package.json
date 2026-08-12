@@ -1,0 +1,24 @@
+{
+  "name": "kids-word-story-video-project",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "dependencies": {
+    "@remotion/bundler": "4.0.489",
+    "@remotion/cli": "4.0.489",
+    "@remotion/renderer": "4.0.489",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.489"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "still": "remotion still StoryVideo out/preview.png --overwrite",
+    "render": "remotion render StoryVideo out/story.mp4 --codec=h264 --crf=18 --concurrency=4 --overwrite",
+    "qa:batch": "node scripts/render-qa.mjs"
+  }
+}

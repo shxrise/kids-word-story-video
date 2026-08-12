@@ -1,0 +1,38 @@
+# Python runtime caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Python environments
+.venv/
+venv/
+
+# Local secrets and machine-specific settings
+.env
+.env.*
+!.env.example
+
+# JavaScript dependencies and generated output
+node_modules/
+build/
+dist/
+out/
+coverage/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+~$*

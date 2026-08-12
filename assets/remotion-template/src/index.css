@@ -1,0 +1,17 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.font-title {
+  font-family: 'Source Han Serif SC', 'Songti SC', 'STSongti-SC-Black', 'SimSun', serif;
+}
+
+.font-body {
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+.font-en {
+  font-family: 'Avenir Next', 'Nunito', 'Trebuchet MS', sans-serif;
+}

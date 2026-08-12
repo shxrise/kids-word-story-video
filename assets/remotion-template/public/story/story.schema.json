@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "story.schema.json",
+  "title": "Kids Word Story Video v2",
+  "type": "object",
+  "required": ["$schema", "meta", "visualBible", "sfxCatalog", "scenes"],
+  "properties": {
+    "$schema": {"const": "story.schema.json"},
+    "meta": {
+      "type": "object",
+      "required": [
+        "schemaVersion", "category", "series", "width", "height", "imageWidth", "imageHeight",
+        "fps", "imageNormalization", "imageAspectTolerancePct", "ttsProvider", "voice", "rate",
+        "targetPauseSec", "highlightThroughPause", "sfxDensity", "introTitle", "pauseTargets", "theme"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 2},
+        "width": {"const": 1280},
+        "height": {"const": 720},
+        "imageWidth": {"const": 1280},
+        "imageHeight": {"const": 720},
+        "fps": {"const": 20},
+        "imageNormalization": {"const": "stable-lanczos"},
+        "imageAspectTolerancePct": {"const": 1.0},
+        "ttsProvider": {"enum": ["edge", "azure"]},
+        "voice": {"type": "string", "minLength": 1},
+        "rate": {"type": "string", "pattern": "^[+-]?[0-9]+%$"},
+        "targetPauseSec": {"type": "number", "minimum": 0},
+        "highlightThroughPause": {"const": true},
+        "sfxDensity": {"enum": ["off", "light", "standard", "rich"]},
+        "introTitle": {"type": "string", "minLength": 1},
+        "pauseTargets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z]+$"}},
+        "theme": {"type": "object"}
+      }
+    },
+    "visualBible": {
+      "type": "object",
+      "required": ["stylePrompt", "palette", "characters", "referenceImage"],
+      "properties": {
+        "stylePrompt": {"type": "string", "minLength": 1},
+        "palette": {"type": "string", "minLength": 1},
+        "referenceImage": {"type": "string", "minLength": 1},
+        "characters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "role", "appearance", "mustKeep"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "role": {"type": "string", "minLength": 1},
+              "appearance": {"type": "string", "minLength": 1},
+              "mustKeep": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+            }
+          }
+        }
+      }
+    },
+    "sfxCatalog": {"type": "object"},
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "zh", "en", "image", "imagePrompt", "characterIds", "visualRequirements", "targetMarkers", "sfx"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "title": {"type": "string"},
+          "zh": {"type": "string", "minLength": 1},
+          "en": {"type": "string"},
+          "image": {"type": "string", "minLength": 1},
+          "imagePrompt": {"type": "string", "pattern": "16:9"},
+          "characterIds": {"type": "array", "items": {"type": "string"}},
+          "visualRequirements": {
+            "type": "object",
+            "required": ["mustShow", "mustNotShow", "action", "continuity"],
+            "properties": {
+              "mustShow": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+              "mustNotShow": {"type": "array", "items": {"type": "string"}},
+              "action": {"type": "string", "minLength": 1},
+              "continuity": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "targetMarkers": {"type": "object"},
+          "sfx": {"type": "array", "maxItems": 2}
+        }
+      }
+    }
+  }
+}

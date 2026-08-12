@@ -1,0 +1,40 @@
+{
+  "$schema": "story.schema.json",
+  "meta": {
+    "schemaVersion": 2,
+    "category": "儿童英语",
+    "series": "儿童故事",
+    "width": 1280,
+    "height": 720,
+    "imageWidth": 1280,
+    "imageHeight": 720,
+    "fps": 20,
+    "imageNormalization": "stable-lanczos",
+    "imageAspectTolerancePct": 1.0,
+    "ttsProvider": "edge",
+    "voice": "zh-CN-XiaoxiaoNeural",
+    "rate": "-15%",
+    "targetPauseSec": 0.0,
+    "highlightSec": 1.0,
+    "highlightThroughPause": true,
+    "sfxDensity": "standard",
+    "introTitle": "儿童故事",
+    "pauseTargets": [],
+    "theme": {
+      "bg": "#111111",
+      "card": "#FDFBF4",
+      "ink": "#26241F",
+      "muted": "#8C8878",
+      "accent": "#E4B23A",
+      "badge": "#2C4A3B"
+    }
+  },
+  "visualBible": {
+    "stylePrompt": "全彩儿童绘本，温暖自然光，柔和手绘质感",
+    "palette": "根据本次故事动态确定",
+    "characters": [],
+    "referenceImage": "reference/characters.png"
+  },
+  "sfxCatalog": {},
+  "scenes": []
+}

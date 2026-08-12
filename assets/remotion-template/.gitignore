@@ -1,0 +1,14 @@
+.venv/
+node_modules/
+build/
+out/
+qa/
+public/raw/
+public/audio/
+public/assets/
+public/reference/
+public/sfx/
+*.mp4
+*.log
+__pycache__/
+*.py[cod]
