@@ -2,6 +2,20 @@
 
 [中文](#中文) · [English](#english)
 
+## 实际流程示例 / Workflow example
+
+1. 确认目标词和制作设置。 / Confirm the target words and production settings.
+
+   ![儿童单词故事视频制作确认单](docs/images/01-confirmation-card.png)
+
+2. 生成并审核故事插画，必要时按规则重试。 / Generate and review story illustrations, retrying when needed.
+
+   ![儿童单词故事视频插画生成与审核](docs/images/02-illustration-review.png)
+
+3. 完成渲染，并交付成片与验收结果。 / Render the video and deliver it with QA results.
+
+   ![儿童单词故事视频成片与验收结果](docs/images/03-final-video-and-qa.png)
+
 ## 中文
 
 这是一个面向中文用户的 Codex 技能：把数量灵活的英语目标词编入一段连贯、有趣的儿童故事，并制作成完整的 720p 宽屏 MP4 视频。它将故事创作、插画生成与审核、中文旁白、目标词标、少量音效、Remotion 渲染和成片验收整合为一套可重复执行的工作流。
@@ -19,6 +33,18 @@
 - 保存流程状态、输入指纹和 QA 证据，支持中断恢复，并在交付前进行技术验收和主观审查。
 
 ### 安装
+
+#### 方法一：让 Codex 自动安装（推荐）
+
+在 Codex 中直接提出下面的要求：
+
+```text
+请从 GitHub 仓库 https://github.com/shxrise/kids-word-story-video 安装这个 Codex 技能。安装完成后检查技能是否能被发现，并告诉我结果。
+```
+
+Codex 会下载仓库并把技能安装到正确的技能目录。如果 Codex 请求网络访问或文件写入授权，请按界面提示确认。
+
+#### 方法二：使用 Git 手动安装
 
 将仓库克隆到 Codex 的技能目录：
 
@@ -71,6 +97,18 @@ Kids Word Story Video is a Codex skill designed primarily for Chinese-speaking u
 - Records pipeline state, input fingerprints, and QA evidence for resumable, verifiable delivery.
 
 ### Installation
+
+#### Method 1: Ask Codex to install it (recommended)
+
+Give Codex this request:
+
+```text
+Install the Codex skill from https://github.com/shxrise/kids-word-story-video. After installation, verify that Codex can discover the skill and report the result.
+```
+
+Codex will download the repository and place the skill in the appropriate skills directory. Approve network or file-write access if Codex asks for it.
+
+#### Method 2: Install manually with Git
 
 Clone the repository into the Codex skills directory:
 
