@@ -150,9 +150,9 @@ assets/remotion-template/   Reusable Remotion video project template
 
 ## 示例 / Examples
 
-下面展示一次儿童单词故事视频的操作过程，以及成品的前 60 秒剪辑。点击图片可以查看完整尺寸，点击视频封面或播放链接可以直接观看成品片段。
+下面展示一次儿童单词故事视频的操作过程，以及成品的前 60 秒剪辑。点击图片可以查看完整尺寸，成品片段可直接在 README 中播放。
 
-The example below shows the production workflow and the first 60 seconds of the finished video. Select the workflow image to view it at full size, or select the video poster or play link to watch the clip directly.
+The example below shows the production workflow and the first 60 seconds of the finished video. Select the workflow image to view it at full size; the finished clip plays directly in the README.
 
 ### 操作过程 / Production workflow
 
@@ -162,14 +162,9 @@ The example below shows the production workflow and the first 60 seconds of the 
 
 ### 成品片段 / Finished video clip
 
-<p align="center">
-  <a href="docs/examples/story-demo-first-60s.mp4?raw=1"><img src="docs/examples/story-demo-first-60s-poster.jpg" alt="彩虹伞的海边任务成品视频前 60 秒封面 / Poster for the first 60 seconds of the finished story video" width="760"></a>
-</p>
+https://github.com/user-attachments/assets/09f5dca5-3af9-4665-9026-a9c122e71fa3
 
-<p align="center">
-  <a href="docs/examples/story-demo-first-60s.mp4?raw=1"><strong>▶ 播放 60 秒成品片段 / Watch the 60-second finished clip</strong></a><br>
-  <sub>1280×720 · 20fps · H.264 + AAC</sub>
-</p>
+<p align="center"><sub>《彩虹伞的海边任务》前 60 秒 · 1280×720 · 20fps · H.264 + AAC</sub></p>
 
 ## License
 
