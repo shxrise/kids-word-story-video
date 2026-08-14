@@ -1,0 +1,32 @@
+name: 功能建议 / Feature request
+description: 提议一个具体、可验证的改进 / Propose a concrete improvement
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景 / Use case
+      description: 谁在什么情况下遇到了什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案 / Proposed behavior
+      description: 期望的输入、输出和成功标准是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 其他方案 / Alternatives
+      description: 你尝试过哪些替代方法？
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 范围确认 / Scope check
+      options:
+        - label: 这项建议与儿童英语单词故事视频工作流直接相关。
+          required: true

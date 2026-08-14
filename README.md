@@ -1,6 +1,12 @@
 # Kids Word Story Video
 
 <p align="center">
+  <a href="https://github.com/shxrise/kids-word-story-video/actions/workflows/ci.yml"><img src="https://github.com/shxrise/kids-word-story-video/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
+  <a href="SKILL.md"><img src="https://img.shields.io/badge/Codex-Skill-6f42c1" alt="Codex Skill"></a>
+</p>
+
+<p align="center">
   <a href="#中文"><img src="docs/readme-language-zh.svg" alt="切换到中文说明" height="44"></a>
   &nbsp;&nbsp;
   <a href="#english"><img src="docs/readme-language-en.svg" alt="Switch to the English documentation" height="44"></a>
@@ -9,6 +15,32 @@
 </p>
 
 <p align="center"><strong>将自定义英语单词编成连贯的儿童绘本故事视频，配中英混合语音旁白。</strong><br>Turn custom English words into a coherent children’s picture-book story video with mixed Chinese-English narration.</p>
+
+<p align="center">如果这个项目对你有帮助，欢迎点亮右上角的 ⭐ Star，让更多需要它的人看到。</p>
+
+<a id="examples"></a>
+
+## 60 秒演示 / 60-second demo
+
+https://github.com/user-attachments/assets/09f5dca5-3af9-4665-9026-a9c122e71fa3
+
+<p align="center"><sub>《彩虹伞的海边任务》前 60 秒 · 1280×720 · 20fps · H.264 + AAC</sub></p>
+
+## 快速开始 / Quick start
+
+在 Codex 中粘贴下面这句话即可安装：
+
+```text
+请从 GitHub 仓库 https://github.com/shxrise/kids-word-story-video 安装这个技能，并验证它能被正常发现。
+```
+
+安装后直接提出视频需求：
+
+```text
+使用 kids-word-story-video，把 apple、ant、book、bird 做成一个儿童单词故事视频。
+```
+
+English users can ask Codex to install the skill from this repository, then request a story video with their target words. The skill always shows a confirmation card before production begins.
 
 ## 中文
 
@@ -27,6 +59,8 @@
 - 自动生成自然完整的全中文故事名并朗读，标题音频结束后保留约 0.6 秒画面。
 - 使用 Remotion 输出固定 `1280×720`、`20fps`、H.264 + AAC 的 MP4。
 - 保存流程状态、输入指纹和 QA 证据，支持中断恢复；最终渲染至少保留 20 分钟运行上限，并在交付前进行技术验收和主观审查。
+
+完整操作截图与制作证据见[示例与使用案例](SHOWCASE.md)。
 
 ### 安装
 
@@ -146,26 +180,18 @@ assets/remotion-template/   Reusable Remotion video project template
 - Image generation, speech services, and local rendering depend on the tools available in the current Codex environment.
 - Only use words, images, voices, and other materials that you are authorized to process and share.
 
-<a id="examples"></a>
+## 项目动态
 
-## 示例 / Examples
-
-下面展示一次儿童单词故事视频的操作过程，以及成品的前 60 秒剪辑。点击图片可以查看完整尺寸，成品片段可直接在 README 中播放。
-
-The example below shows the production workflow and the first 60 seconds of the finished video. Select the workflow image to view it at full size; the finished clip plays directly in the README.
-
-### 操作过程 / Production workflow
-
-<p align="center">
-  <a href="docs/examples/production-workflow.png"><img src="docs/examples/production-workflow.png" alt="儿童单词故事视频操作过程示例 / Kids word story video production workflow example" width="760"></a>
-</p>
-
-### 成品片段 / Finished video clip
-
-https://github.com/user-attachments/assets/09f5dca5-3af9-4665-9026-a9c122e71fa3
-
-<p align="center"><sub>《彩虹伞的海边任务》前 60 秒 · 1280×720 · 20fps · H.264 + AAC</sub></p>
+- [版本记录](CHANGELOG.md)
+- [近期路线图](ROADMAP.md)
+- [示例与使用案例](SHOWCASE.md)
+- [参与贡献](CONTRIBUTING.md)
+- [安全政策](SECURITY.md)
 
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), and report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+如果这个项目帮到了你，欢迎 ⭐ Star、分享真实使用案例，或提出改进建议。

@@ -1,0 +1,55 @@
+name: 问题报告 / Bug report
+description: 报告可复现的功能异常 / Report a reproducible problem
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请删除密钥、个人信息和不必要的用户内容。安全问题请使用 Security 页面的私密漏洞报告。
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题说明 / Summary
+      description: 实际发生了什么？你原本期望什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤 / Reproduction steps
+      placeholder: |
+        1. 使用……
+        2. 运行……
+        3. 出现……
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交 / Version or commit
+      placeholder: main / commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      description: 操作系统、Python、Node.js、pnpm、浏览器及 TTS 提供商版本。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 已脱敏日志 / Sanitized logs
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认 / Checklist
+      options:
+        - label: 我已确认最新 main 分支仍存在此问题。
+          required: true
+        - label: 我已删除密钥、个人信息和无关用户内容。
+          required: true

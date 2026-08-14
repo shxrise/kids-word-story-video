@@ -14,11 +14,12 @@
 
 - 技能结构已建立并经过实际视频流程测试；默认采用真实 TTS 时长闸门、关键动作合同、最多三幕的插画批次计划、独立的发音/停顿/视觉时序和可恢复渲染。
 - 成片音轨只包含标题朗读与中文主体的中英混合旁白；最终渲染使用至少20分钟的固定运行上限，分段时按段数增加。
-- 发布检查通过轻量 GitHub CI 在 Windows 和 Linux 上运行 Python 3.10 自测及 Remotion 类型检查；本地工作区继续用于真实 TTS、浏览器和渲染验证。
+- 发布检查通过轻量 GitHub CI 在 Windows 和 Linux 上运行 Python 3.10 自测及 Remotion 类型检查；Actions 已固定到完整提交，Dependabot 与双语社区协作模板用于持续维护，本地工作区继续用于真实 TTS、浏览器和渲染验证。
+- 首个正式版本为 `v1.0.0`；README 首屏提供成品演示和快速安装，`CHANGELOG.md`、`ROADMAP.md`、`SHOWCASE.md` 与社区模板用于公开维护。
 - Git 仓库以此目录为根，默认分支为 `main`。
 - 已发布至 `https://github.com/shxrise/kids-word-story-video`，后续通过 Git 提交和推送持续维护。
 
 ## 近期 TODO
 
-- 保持 `README.md` 的中英文说明与技能实际能力一致。
+- 保持 `README.md`、`CHANGELOG.md`、`ROADMAP.md` 与技能实际能力和公开版本一致。
 - 在后续真实使用中持续验证 5～6 分钟项目的三幕并发质量、串行降级、时长预检和场景尾部词标行为。

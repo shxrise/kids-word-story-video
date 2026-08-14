@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密安全报告 / Private security report
+    url: https://github.com/shxrise/kids-word-story-video/security/advisories/new
+    about: 请勿公开披露漏洞 / Please report vulnerabilities privately
