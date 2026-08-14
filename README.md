@@ -4,6 +4,8 @@
   <a href="#中文"><img src="docs/readme-language-zh.svg" alt="切换到中文说明" height="44"></a>
   &nbsp;&nbsp;
   <a href="#english"><img src="docs/readme-language-en.svg" alt="Switch to the English documentation" height="44"></a>
+  &nbsp;&nbsp;
+  <a href="#examples"><img src="docs/readme-example.svg" alt="查看操作过程和成品视频示例 / View the workflow and finished video example" height="44"></a>
 </p>
 
 <p align="center"><strong>将自定义英语单词编成连贯的儿童绘本故事视频，配中英混合语音旁白。</strong><br>Turn custom English words into a coherent children’s picture-book story video with mixed Chinese-English narration.</p>
@@ -143,6 +145,31 @@ assets/remotion-template/   Reusable Remotion video project template
 - This is a community-built personal project, not an official OpenAI skill.
 - Image generation, speech services, and local rendering depend on the tools available in the current Codex environment.
 - Only use words, images, voices, and other materials that you are authorized to process and share.
+
+<a id="examples"></a>
+
+## 示例 / Examples
+
+下面展示一次儿童单词故事视频的操作过程，以及成品的前 60 秒剪辑。点击图片可以查看完整尺寸，点击视频封面或播放链接可以直接观看成品片段。
+
+The example below shows the production workflow and the first 60 seconds of the finished video. Select the workflow image to view it at full size, or select the video poster or play link to watch the clip directly.
+
+### 操作过程 / Production workflow
+
+<p align="center">
+  <a href="docs/examples/production-workflow.png"><img src="docs/examples/production-workflow.png" alt="儿童单词故事视频操作过程示例 / Kids word story video production workflow example" width="760"></a>
+</p>
+
+### 成品片段 / Finished video clip
+
+<p align="center">
+  <a href="docs/examples/story-demo-first-60s.mp4?raw=1"><img src="docs/examples/story-demo-first-60s-poster.jpg" alt="彩虹伞的海边任务成品视频前 60 秒封面 / Poster for the first 60 seconds of the finished story video" width="760"></a>
+</p>
+
+<p align="center">
+  <a href="docs/examples/story-demo-first-60s.mp4?raw=1"><strong>▶ 播放 60 秒成品片段 / Watch the 60-second finished clip</strong></a><br>
+  <sub>1280×720 · 20fps · H.264 + AAC</sub>
+</p>
 
 ## License
 

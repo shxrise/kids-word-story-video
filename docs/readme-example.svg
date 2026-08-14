@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="156" height="44" viewBox="0 0 156 44" role="img" aria-labelledby="title desc">
+  <title id="title">示例 / Demo</title>
+  <desc id="desc">查看操作过程和成品视频示例</desc>
+  <rect x="1" y="1" width="154" height="42" rx="12" fill="#0F766E" stroke="#99F6E4" stroke-width="2"/>
+  <text x="78" y="28" text-anchor="middle" fill="#FFFFFF" font-family="Arial, Microsoft YaHei, sans-serif" font-size="17" font-weight="700">示例 / Demo</text>
+</svg>
