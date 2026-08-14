@@ -7,7 +7,6 @@ public/raw/
 public/audio/
 public/assets/
 public/reference/
-public/sfx/
 *.mp4
 *.log
 __pycache__/

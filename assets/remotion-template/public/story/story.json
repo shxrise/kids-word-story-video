@@ -15,9 +15,16 @@
     "voice": "zh-CN-XiaoxiaoNeural",
     "rate": "-15%",
     "targetPauseSec": 0.0,
-    "highlightSec": 1.0,
-    "highlightThroughPause": true,
-    "sfxDensity": "standard",
+    "targetVisualDurationSec": 1.2,
+    "introTailSec": 0.6,
+    "durationTarget": {
+      "targetSec": 330.0,
+      "idealMinSec": 300.0,
+      "idealMaxSec": 360.0,
+      "acceptableMinSec": 285.0,
+      "acceptableMaxSec": 375.0,
+      "maxCreativeAdjustments": 2
+    },
     "introTitle": "儿童故事",
     "pauseTargets": [],
     "theme": {
@@ -35,6 +42,5 @@
     "characters": [],
     "referenceImage": "reference/characters.png"
   },
-  "sfxCatalog": {},
   "scenes": []
 }

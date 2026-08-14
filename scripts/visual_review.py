@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from project_runtime import atomic_json, sha256_file, sha256_json
+from project_runtime import atomic_json, safe_child, sha256_file, sha256_json
 
 
 ACCEPTED_STATUSES = ("passed", "accepted-minor")
@@ -26,13 +26,7 @@ def review_path(project: Path) -> Path:
 
 
 def public_file(project: Path, relative: str) -> Path:
-    public = (project / "public").resolve()
-    path = (public / relative.replace("\\", "/").lstrip("/")).resolve()
-    try:
-        path.relative_to(public)
-    except ValueError as exc:
-        raise ValueError(f"visual path escapes public/: {relative}") from exc
-    return path
+    return safe_child(project / "public", relative, "visual review image")[1]
 
 
 def expected_items(project: Path, story: dict) -> dict:

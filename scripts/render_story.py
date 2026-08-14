@@ -7,18 +7,24 @@ import argparse
 import json
 import math
 import os
+import queue
 import re
-import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
+from duration_control import expected_frames
 from pipeline_state import fail_stage, load_state, mark_stage
 from project_runtime import (
+    atomic_json,
     command_args,
     discover_toolchain,
     fingerprint_files,
+    safe_child,
     sha256_json,
     toolchain_env,
 )
@@ -27,19 +33,53 @@ from validate_mp4 import validate_video, write_report
 
 SINGLE_RENDER_MAX_FRAMES = 9000
 SEGMENT_FRAMES = 3000
+MIN_RENDER_TIMEOUT_SEC = 20 * 60
 
 
-def atomic_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temp, path)
+def render_timeout_sec(segment_count: int, requested: int | None = None) -> int:
+    if segment_count < 1:
+        raise ValueError("segment count must be positive")
+    required = MIN_RENDER_TIMEOUT_SEC * segment_count
+    value = required if requested is None else requested
+    if value < required:
+        raise ValueError(
+            f"render timeout must be at least {required} seconds for {segment_count} segment(s)"
+        )
+    return value
 
 
-def run_logged(command: list[str], cwd: Path, log_path: Path, env: dict[str, str]) -> None:
+def terminate_process_group(proc: subprocess.Popen[str], log) -> None:
+    log.write("terminating child process group\n")
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+        except OSError:
+            proc.terminate()
+    else:
+        os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            proc.kill()
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+
+
+def run_logged(
+    command: list[str], cwd: Path, log_path: Path, env: dict[str, str], deadline: float
+) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log:
         log.write(f"\n[{datetime.now().isoformat(timespec='seconds')}] {' '.join(command)}\n")
+        process_group_args = (
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if os.name == "nt"
+            else {"start_new_session": True}
+        )
         proc = subprocess.Popen(
             command,
             cwd=cwd,
@@ -50,20 +90,55 @@ def run_logged(command: list[str], cwd: Path, log_path: Path, env: dict[str, str
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            **process_group_args,
         )
         assert proc.stdout is not None
+        output: queue.Queue[str | None] = queue.Queue()
+
+        def read_output() -> None:
+            try:
+                for line in proc.stdout:
+                    output.put(line)
+            finally:
+                output.put(None)
+
+        threading.Thread(target=read_output, daemon=True).start()
         last_bucket = -1
-        for line in proc.stdout:
-            log.write(line)
-            match = re.search(r"(?:Rendered|Rendering|rendered|rendering)[^0-9]*(\d+)\s*/\s*(\d+)", line)
-            if match and int(match.group(2)) > 0:
-                bucket = int(int(match.group(1)) / int(match.group(2)) * 20)
-                if bucket > last_bucket:
-                    last_bucket = bucket
-                    print(f"render progress: {min(bucket * 5, 100)}%", flush=True)
-            elif not re.search(r"\b\d+\s*/\s*\d+\b", line):
-                print(line, end="")
-        code = proc.wait()
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    terminate_process_group(proc, log)
+                    raise TimeoutError("final render exceeded its configured wall-clock timeout")
+                try:
+                    line = output.get(timeout=min(0.5, remaining))
+                except queue.Empty:
+                    # No console output is a normal running state. Keep waiting for the real process result.
+                    continue
+                if line is None:
+                    break
+                log.write(line)
+                match = re.search(r"(?:Rendered|Rendering|rendered|rendering)[^0-9]*(\d+)\s*/\s*(\d+)", line)
+                if match and int(match.group(2)) > 0:
+                    bucket = int(int(match.group(1)) / int(match.group(2)) * 20)
+                    if bucket > last_bucket:
+                        last_bucket = bucket
+                        print(f"render progress: {min(bucket * 5, 100)}%", flush=True)
+                elif not re.search(r"\b\d+\s*/\s*\d+\b", line):
+                    print(line, end="")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                terminate_process_group(proc, log)
+                raise TimeoutError("final render exceeded its configured wall-clock timeout")
+            try:
+                code = proc.wait(timeout=remaining)
+            except subprocess.TimeoutExpired as exc:
+                terminate_process_group(proc, log)
+                raise TimeoutError("final render exceeded its configured wall-clock timeout") from exc
+        except KeyboardInterrupt:
+            log.write("render interrupted by caller; terminating child process\n")
+            terminate_process_group(proc, log)
+            raise
     if code != 0:
         raise RuntimeError(f"command failed with exit code {code}; see {log_path}")
 
@@ -73,13 +148,6 @@ def find_ffmpeg(project: Path) -> str:
     if not ffmpeg:
         raise RuntimeError("FFmpeg unavailable")
     return str(ffmpeg)
-
-
-def expected_frames(story: dict) -> int:
-    fps = int(story["meta"]["fps"])
-    return math.ceil(float(story["meta"].get("introAudioDurationSec", 0)) * fps) + sum(
-        math.ceil(float(scene.get("audioDurationSec", 0)) * fps) for scene in story["scenes"]
-    )
 
 
 def require_visual_qa(project: Path) -> None:
@@ -161,15 +229,14 @@ def render_input(project: Path, story: dict) -> tuple[str, list[dict]]:
         project / "remotion.config.ts",
     ]
     files.extend((project / "src").glob("**/*"))
-    files.append(public / str(story.get("meta", {}).get("introAudio", "")))
+    intro_audio = str(story.get("meta", {}).get("introAudio", ""))
+    if intro_audio:
+        files.append(safe_child(public, intro_audio, "intro audio")[1])
     for scene in story.get("scenes", []):
-        files.extend([
-            public / str(scene.get("image", "")),
-            public / str(scene.get("audio", "")),
-        ])
-    for asset in story.get("sfxCatalog", {}).values():
-        if isinstance(asset, dict):
-            files.append(public / str(asset.get("src", "")))
+        for field in ("image", "audio"):
+            relative = str(scene.get(field, ""))
+            if relative:
+                files.append(safe_child(public, relative, f"scene {field}")[1])
     return fingerprint_files(project, [path for path in files if str(path) and path.is_file()])
 
 
@@ -181,6 +248,11 @@ def main() -> None:
     parser.add_argument("--ffmpeg")
     parser.add_argument("--browser")
     parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument(
+        "--timeout-sec",
+        type=int,
+        help="Wall-clock render limit; must be at least 1200 seconds and scales with segment count",
+    )
     parser.add_argument("--single-render-max-frames", type=int, default=SINGLE_RENDER_MAX_FRAMES, help=argparse.SUPPRESS)
     parser.add_argument("--segment-frames", type=int, default=SEGMENT_FRAMES, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -205,6 +277,8 @@ def main() -> None:
         build.mkdir(parents=True, exist_ok=True)
         official = out / "story.mp4"
         temp_final = out / "story.rendering.mp4"
+        if temp_final.exists():
+            print(f"discarding incomplete prior render: {temp_final.name}")
         temp_final.unlink(missing_ok=True)
         log_path = build / "render.log"
         env = toolchain_env(tools)
@@ -212,6 +286,9 @@ def main() -> None:
 
         if args.single_render_max_frames <= 0 or args.segment_frames <= 0:
             raise RuntimeError("render thresholds must be positive")
+        segment_count = 1 if total <= args.single_render_max_frames else math.ceil(total / args.segment_frames)
+        timeout_sec = render_timeout_sec(segment_count, args.timeout_sec)
+        deadline = time.monotonic() + timeout_sec
         if total <= args.single_render_max_frames:
             plan = {
                 "schemaVersion": 1,
@@ -221,14 +298,24 @@ def main() -> None:
                 "thresholdFrames": args.single_render_max_frames,
                 "totalFrames": total,
                 "fps": fps,
+                "timeoutSec": timeout_sec,
+                "timeoutPolicy": "fixed-wall-clock-success-or-error-returns-immediately",
             }
             atomic_json(build / "render-plan.json", plan)
-            run_logged(render_command(str(tools["pnpm"]), temp_final, 18, args.concurrency), project, log_path, env)
+            run_logged(
+                render_command(str(tools["pnpm"]), temp_final, 18, args.concurrency),
+                project,
+                log_path,
+                env,
+                deadline,
+            )
         else:
             ffmpeg = str(tools["ffmpeg"])
             plan_path = build / "render-plan.json"
             plan = segment_plan(total, fps, args.segment_frames, render_input_hash)
             plan["evidence"] = render_evidence
+            plan["timeoutSec"] = timeout_sec
+            plan["timeoutPolicy"] = "fixed-wall-clock-success-or-error-returns-immediately"
             if plan_path.is_file():
                 existing = json.loads(plan_path.read_text(encoding="utf-8"))
                 if (
@@ -256,6 +343,7 @@ def main() -> None:
                     project,
                     log_path,
                     env,
+                    deadline,
                 )
                 if not segment_is_valid(ffmpeg, path, int(segment["frames"])):
                     raise RuntimeError(f"segment validation failed: {path}")
@@ -280,7 +368,7 @@ def main() -> None:
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{total / fps:.9f}",
                 "-movflags", "+faststart", "-y", str(temp_final),
             ]
-            run_logged(command, project, log_path, env)
+            run_logged(command, project, log_path, env, deadline)
 
         # Remotion MP4s may retain one AAC tail packet. Trim the container to the
         # exact frame-derived duration without re-encoding either stream.
@@ -295,6 +383,7 @@ def main() -> None:
             project,
             log_path,
             env,
+            deadline,
         )
         os.replace(trimmed, temp_final)
 
@@ -306,7 +395,11 @@ def main() -> None:
         report["video"] = str(official.resolve())
         report["bytes"] = official.stat().st_size
         write_report(project, report)
-        mark_stage(project, "rendered", {"strategy": plan["strategy"], "frames": total})
+        mark_stage(
+            project,
+            "rendered",
+            {"strategy": plan["strategy"], "frames": total, "timeoutSec": timeout_sec},
+        )
         mark_stage(project, "mp4_validated", {"sha256": report["sha256"], "frames": report["decodedFrames"]})
         print(json.dumps(report, ensure_ascii=False, indent=2))
     except (RuntimeError, ValueError, OSError, json.JSONDecodeError) as exc:
@@ -316,6 +409,13 @@ def main() -> None:
         except (ValueError, OSError, json.JSONDecodeError):
             pass
         sys.exit(str(exc))
+    except KeyboardInterrupt:
+        try:
+            if project.is_dir():
+                fail_stage(project, "rendered", "render interrupted by caller; rerun safely to resume")
+        except (ValueError, OSError, json.JSONDecodeError):
+            pass
+        sys.exit(130)
 
 
 if __name__ == "__main__":

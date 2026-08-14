@@ -15,7 +15,9 @@ from project_runtime import atomic_json
 RULES = {
     "crop-cover": re.compile(r"objectFit\s*:\s*['\"]cover['\"]"),
     "legacy-widescreen-remap": re.compile(r"markerYForWidescreen"),
-    "three-two-art": re.compile(r"(?:native\s*)?3\s*:\s*2", re.IGNORECASE),
+    "three-two-art": re.compile(
+        r"(?<![\d:])(?:native\s*)?3\s*:\s*2(?!\d)", re.IGNORECASE
+    ),
     "gif-media": re.compile(r"\.gif\b", re.IGNORECASE),
     "video-generation": re.compile(r"(?:文生视频|图生视频|text[- ]to[- ]video|image[- ]to[- ]video)", re.IGNORECASE),
 }

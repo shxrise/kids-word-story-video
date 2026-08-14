@@ -11,11 +11,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+from duration_control import (
+    event_spoken_duration_sec,
+    event_visual_duration_sec,
+    intro_timeline_duration_sec,
+    scene_timeline_duration_sec,
+)
 from project_runtime import (
     atomic_json,
     command_args,
     discover_toolchain,
     fingerprint_files,
+    safe_child,
     sha256_file,
     sha256_json,
     toolchain_env,
@@ -32,7 +39,7 @@ def qa_inputs(project: Path, story: dict) -> tuple[str, list[dict]]:
     ]
     files.extend((project / "src").glob("**/*"))
     files.extend(
-        project / "public" / str(scene.get("image", ""))
+        safe_child(project / "public", str(scene.get("image", "")), "scene image")[1]
         for scene in story.get("scenes", [])
         if scene.get("image")
     )
@@ -42,11 +49,13 @@ def qa_inputs(project: Path, story: dict) -> tuple[str, list[dict]]:
 def build_jobs(story: dict, qa_input_hash: str) -> tuple[list[dict], list[dict], list[dict]]:
     fps = int(story["meta"]["fps"])
     pause_sec = max(0.0, float(story["meta"].get("targetPauseSec", 0)))
-    intro_frames = math.ceil(float(story["meta"].get("introAudioDurationSec", 0)) * fps)
+    intro_audio_frames = math.ceil(float(story["meta"].get("introAudioDurationSec", 0)) * fps)
+    intro_frames = math.ceil(intro_timeline_duration_sec(story["meta"]) * fps)
     offset = intro_frames
     targets: list[dict] = []
     states: list[dict] = [
         {"name": "intro-mid", "frame": max(0, intro_frames // 2)},
+        {"name": "intro-audio-end", "frame": max(0, min(intro_frames - 1, intro_audio_frames))},
         {"name": "body-first", "frame": intro_frames},
     ]
     example_added = False
@@ -55,27 +64,38 @@ def build_jobs(story: dict, qa_input_hash: str) -> tuple[list[dict], list[dict],
         if highlights:
             first = highlights[0]
             first_start = float(first["start"])
-            first_duration = float(first["duration"])
-            spoken_sample = first_start + min(0.08, max(0.001, first_duration / 2))
+            spoken_duration = event_spoken_duration_sec(first)
+            visual_duration = event_visual_duration_sec(first, story["meta"])
+            spoken_sample = first_start + min(0.08, max(0.001, spoken_duration / 2))
             targets.append({
                 "scene": str(scene["id"]),
                 "word": first["word"],
                 "frame": offset + max(0, round(spoken_sample * fps)),
             })
             if not example_added:
-                spoken_end = first_start + max(0, first_duration - pause_sec)
+                spoken_end = first_start + spoken_duration
                 states.append(
                     {"name": "word-spoken", "frame": offset + round(spoken_sample * fps)}
+                )
+                states.append(
+                    {
+                        "name": "word-visual-mid",
+                        "frame": offset + round((first_start + visual_duration / 2) * fps),
+                    }
                 )
                 if pause_sec > 0:
                     states.append(
                         {"name": "word-pause", "frame": offset + round((spoken_end + pause_sec / 2) * fps)}
                     )
                 states.append(
-                    {"name": "word-after", "frame": offset + math.ceil((first_start + first_duration) * fps) + 1}
+                    {"name": "word-after", "frame": offset + math.ceil((first_start + visual_duration) * fps) + 1}
                 )
                 example_added = True
-        offset += math.ceil(float(scene.get("audioDurationSec", 0)) * fps)
+        offset += math.ceil(scene_timeline_duration_sec(scene, story["meta"]) * fps)
+
+    max_frame = max(0, offset - 1)
+    for item in [*targets, *states]:
+        item["frame"] = max(0, min(max_frame, int(item["frame"])))
 
     jobs: list[dict] = []
     for index, item in enumerate(targets, start=1):
@@ -112,6 +132,8 @@ def contact_sheet(project: Path, targets: list[dict], ffmpeg: str, env: dict[str
     )
     if result.returncode != 0:
         raise RuntimeError(f"contact sheet failed: {result.stderr.strip()}")
+    if not output.is_file():
+        raise RuntimeError(f"contact sheet command succeeded but output is missing: {output}")
 
 
 def all_jobs_reusable(project: Path, progress_path: Path, input_hash: str, jobs: list[dict]) -> bool:
@@ -185,7 +207,12 @@ def main() -> None:
         "schemaVersion": 2,
         "qaInputSha256": input_hash,
         "fps": int(story["meta"]["fps"]),
-        "introFrames": math.ceil(float(story["meta"].get("introAudioDurationSec", 0)) * int(story["meta"]["fps"])),
+        "introAudioFrames": math.ceil(
+            float(story["meta"].get("introAudioDurationSec", 0)) * int(story["meta"]["fps"])
+        ),
+        "introFrames": math.ceil(
+            intro_timeline_duration_sec(story["meta"]) * int(story["meta"]["fps"])
+        ),
         "targets": targets,
         "states": states,
         "renderedJobs": len(jobs),

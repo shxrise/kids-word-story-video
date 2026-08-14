@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@remotion/bundler": "4.0.489",
     "@remotion/cli": "4.0.489",

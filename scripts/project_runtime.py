@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,53 @@ def sha256_file(path: Path) -> str:
 def sha256_json(value: object) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
+
+
+def safe_child(root: Path, relative: str, label: str = "path") -> tuple[str, Path]:
+    """Resolve a project-relative path and reject empty, absolute, or escaping values."""
+    normalized = str(relative).replace("\\", "/").strip().lstrip("/")
+    if not normalized or Path(relative).is_absolute():
+        raise ValueError(f"{label} must be a non-empty relative path: {relative}")
+    resolved_root = root.resolve()
+    resolved = (resolved_root / normalized).resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"{label} escapes {resolved_root}: {relative}") from exc
+    return normalized, resolved
+
+
+def image_size(path: Path) -> tuple[int, int]:
+    """Read PNG or JPEG dimensions without a heavyweight image dependency."""
+    with path.open("rb") as handle:
+        header = handle.read(24)
+        if header.startswith(b"\x89PNG\r\n\x1a\n"):
+            return struct.unpack(">II", header[16:24])
+        if header[:2] != b"\xff\xd8":
+            raise ValueError("only PNG and JPEG images are supported")
+        handle.seek(2)
+        while True:
+            start = handle.read(1)
+            if not start:
+                break
+            if start != b"\xff":
+                continue
+            marker = handle.read(1)
+            while marker == b"\xff":
+                marker = handle.read(1)
+            length_raw = handle.read(2)
+            if len(length_raw) != 2:
+                break
+            length = struct.unpack(">H", length_raw)[0]
+            if marker and marker[0] in {
+                0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+            }:
+                data = handle.read(5)
+                height, width = struct.unpack(">HH", data[1:5])
+                return width, height
+            handle.seek(max(0, length - 2), 1)
+    raise ValueError(f"could not read image dimensions: {path}")
 
 
 def command_args(program: str, *args: str) -> list[str]:

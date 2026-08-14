@@ -1,4 +1,4 @@
 interface:
   display_name: "儿童单词故事视频"
-  short_description: "用零停顿大号词标稳定制作固定720p儿童单词故事视频"
-  default_prompt: "使用 $kids-word-story-video 根据我提供的英语目标词，先显示确认单，确认后用默认温和女声、零秒目标词停顿和大号半透明词标，按固定720p、20fps可恢复流程制作完整MP4。"
+  short_description: "将自定义英语单词编成连贯的儿童绘本故事视频，配中英混合语音旁白"
+  default_prompt: "使用 $kids-word-story-video 根据我提供的英语目标词，先显示制作确认单；确认后创作连贯的儿童绘本故事，配中英混合语音旁白和清楚的目标词视觉提示，完成视频制作与验收。"

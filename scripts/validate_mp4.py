@@ -13,8 +13,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from duration_control import (
+    duration_target,
+    expected_frames,
+    intro_timeline_duration_sec,
+    scene_timeline_duration_sec,
+)
 from pipeline_state import mark_stage, set_review
-from project_runtime import discover_toolchain, sha256_file
+from project_runtime import atomic_json, discover_toolchain, sha256_file
 
 
 WORD_RE = re.compile(r"[A-Za-z]+")
@@ -25,12 +31,6 @@ def find_ffmpeg(project: Path) -> str:
     if not ffmpeg:
         raise RuntimeError("FFmpeg unavailable; run doctor.py --project <project> --repair")
     return str(ffmpeg)
-
-
-def expected_frames(story: dict) -> int:
-    fps = int(story["meta"]["fps"])
-    total = math.ceil(float(story["meta"].get("introAudioDurationSec", 0)) * fps)
-    return total + sum(math.ceil(float(scene.get("audioDurationSec", 0)) * fps) for scene in story["scenes"])
 
 
 def run_text(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -80,7 +80,92 @@ def audio_analysis(ffmpeg: str, video: Path) -> dict:
     }
 
 
-def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dict, list[str], list[str]]:
+def final_qa_frames(story: dict, total_frames: int) -> list[int]:
+    fps = int(story["meta"]["fps"])
+    intro_frames = math.ceil(intro_timeline_duration_sec(story["meta"]) * fps)
+    frames = [max(0, intro_frames // 2), min(total_frames - 1, intro_frames), total_frames // 2]
+    offset = intro_frames
+    target_added = False
+    for scene in story.get("scenes", []):
+        highlights = scene.get("targetHighlights", []) or []
+        if highlights and not target_added:
+            frames.append(min(total_frames - 1, offset + round(float(highlights[0].get("start", 0)) * fps)))
+            target_added = True
+        offset += math.ceil(scene_timeline_duration_sec(scene, story["meta"]) * fps)
+    frames.append(max(0, total_frames - 2))
+    return sorted(set(max(0, min(total_frames - 1, frame)) for frame in frames))
+
+
+def extract_final_qa_frames(
+    project: Path,
+    ffmpeg: str,
+    video: Path,
+    story: dict,
+    total_frames: int,
+) -> dict:
+    frames = final_qa_frames(story, total_frames)
+    output_dir = project / "qa" / "final-video"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    old_manifest_path = output_dir / "manifest.json"
+    if old_manifest_path.is_file():
+        try:
+            old_manifest = json.loads(old_manifest_path.read_text(encoding="utf-8"))
+            for item in old_manifest.get("frames", []):
+                old_path = (project / str(item.get("file", ""))).resolve()
+                try:
+                    old_path.relative_to(output_dir.resolve())
+                except ValueError:
+                    continue
+                old_path.unlink(missing_ok=True)
+        except json.JSONDecodeError:
+            pass
+    expected_paths = [output_dir / f"frame-{index:02d}.png" for index in range(1, len(frames) + 1)]
+    for path in expected_paths:
+        path.unlink(missing_ok=True)
+    output_pattern = output_dir / "frame-%02d.png"
+    select = "+".join(f"eq(n\\,{frame})" for frame in frames)
+    proc = run_text(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(video),
+            "-vf",
+            f"select={select}",
+            "-vsync",
+            "0",
+            str(output_pattern),
+        ]
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"final frame extraction failed: {(proc.stderr or proc.stdout).strip()}")
+    missing = [str(path) for path in expected_paths if not path.is_file()]
+    if missing:
+        raise RuntimeError(f"final frame extraction command succeeded but outputs are missing: {missing}")
+    manifest = {
+        "schemaVersion": 1,
+        "videoSha256": sha256_file(video),
+        "frames": [
+            {
+                "frame": frame,
+                "file": str(path.relative_to(project)).replace("\\", "/"),
+                "sha256": sha256_file(path),
+            }
+            for frame, path in zip(frames, expected_paths)
+        ],
+    }
+    atomic_json(output_dir / "manifest.json", manifest)
+    return manifest
+
+
+def validate_video(
+    project: Path,
+    video: Path,
+    decode: bool = True,
+    extract_frames: bool = True,
+) -> tuple[dict, list[str], list[str]]:
     story_path = project / "public" / "story" / "story.json"
     if not story_path.is_file() or not video.is_file():
         raise RuntimeError("story.json or video is missing")
@@ -130,12 +215,18 @@ def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dic
         errors.append("could not read container duration")
 
     decoded_frames = None
+    final_frame_qa = None
     if decode:
         decoded_frames, decode_error = decode_frame_count(ffmpeg, video)
         if decode_error:
             errors.append(f"full decode failed: {decode_error}")
         elif decoded_frames != expected:
             errors.append(f"decoded frame count must be {expected}, got {decoded_frames}")
+        if not errors and extract_frames:
+            try:
+                final_frame_qa = extract_final_qa_frames(project, ffmpeg, video, story, expected)
+            except RuntimeError as exc:
+                errors.append(str(exc))
 
     audio = audio_analysis(ffmpeg, video)
     if audio["truePeakDbfs"] is not None and audio["truePeakDbfs"] >= -0.1:
@@ -145,7 +236,6 @@ def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dic
 
     tokens = [match.group(0).lower() for scene in story["scenes"] for match in WORD_RE.finditer(str(scene.get("zh", "")))]
     counts = Counter(tokens)
-    sfx_count = sum(len(scene.get("sfx", [])) for scene in story["scenes"])
     image_manifest_path = project / "public" / "story" / "image-sources.json"
     image_manifest = json.loads(image_manifest_path.read_text(encoding="utf-8")) if image_manifest_path.is_file() else {"assets": []}
     normalized_assets = image_manifest.get("assets", [])
@@ -153,6 +243,15 @@ def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dic
     visual_reviews = json.loads(visual_reviews_path.read_text(encoding="utf-8")) if visual_reviews_path.is_file() else {"items": {}}
     qa_manifest_path = project / "qa" / "manifest.json"
     render_plan_path = project / "build" / "render-plan.json"
+    render_plan = json.loads(render_plan_path.read_text(encoding="utf-8")) if render_plan_path.is_file() else {}
+    image_plan_path = project / "build" / "image-generation-plan.json"
+    image_plan = json.loads(image_plan_path.read_text(encoding="utf-8")) if image_plan_path.is_file() else {}
+    duration_preflight_path = project / "build" / "duration-preflight.json"
+    duration_preflight = (
+        json.loads(duration_preflight_path.read_text(encoding="utf-8"))
+        if duration_preflight_path.is_file()
+        else {}
+    )
     report = {
         "schemaVersion": 2,
         "status": "passed" if not errors else "failed",
@@ -167,17 +266,26 @@ def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dic
         "fps": actual_fps,
         "expectedFrames": expected,
         "decodedFrames": decoded_frames,
+        "finalFrameQa": final_frame_qa,
         "videoCodec": "h264" if "Video: h264" in video_line else None,
         "audioCodec": "aac" if "Audio: aac" in audio_line else None,
         "scenes": len(story["scenes"]),
         "targets": len(story["meta"].get("pauseTargets", [])),
         "targetOccurrences": len(tokens),
-        "targetCounts": {str(word).lower(): counts[str(word).lower()] for word in story["meta"].get("pauseTargets", [])},
-        "soundEffects": sfx_count,
+        "targetCounts": {str(word): counts[str(word).lower()] for word in story["meta"].get("pauseTargets", [])},
         "tts": {
             "provider": story["meta"].get("ttsProvider"),
             "voice": story["meta"].get("voice"),
             "rate": story["meta"].get("rate"),
+            "targetPauseSec": story["meta"].get("targetPauseSec"),
+            "targetVisualDurationSec": story["meta"].get("targetVisualDurationSec"),
+            "introTailSec": story["meta"].get("introTailSec"),
+        },
+        "durationControl": {
+            "target": duration_target(story["meta"]),
+            "preflightStatus": duration_preflight.get("status"),
+            "estimatedDurationSec": duration_preflight.get("estimatedDurationSec"),
+            "finalDurationSec": actual_duration,
         },
         "visualSemanticReviews": {
             "manifest": str(visual_reviews_path.resolve()),
@@ -185,8 +293,23 @@ def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dic
             "acceptedMinor": sum(item.get("status") == "accepted-minor" for item in visual_reviews.get("items", {}).values()),
             "total": len(visual_reviews.get("items", {})),
         },
+        "criticalActionScenes": sum(
+            bool(scene.get("visualRequirements", {}).get("criticalAction"))
+            for scene in story["scenes"]
+        ),
+        "illustrationPlan": {
+            "manifest": str(image_plan_path.resolve()),
+            "mode": image_plan.get("mode"),
+            "maxParallelScenes": image_plan.get("maxParallelScenes"),
+            "batches": len(image_plan.get("batches", [])),
+            "preservedScenes": len(image_plan.get("preservedSceneIds", [])),
+        },
         "qaManifest": str(qa_manifest_path.resolve()),
-        "renderPlan": str(render_plan_path.resolve()),
+        "renderPlan": {
+            "manifest": str(render_plan_path.resolve()),
+            "strategy": render_plan.get("strategy"),
+            "timeoutSec": render_plan.get("timeoutSec"),
+        },
         "imageNormalization": {
             "policy": image_manifest.get("policy"),
             "aspectTolerancePct": image_manifest.get("aspectTolerancePct"),
@@ -195,7 +318,6 @@ def validate_video(project: Path, video: Path, decode: bool = True) -> tuple[dic
         },
         "audioAnalysis": audio,
         "subjectiveAudio": "pending-human",
-        "oldProjectOverwritten": False,
         "warnings": warnings,
         "errors": errors,
     }
@@ -219,8 +341,15 @@ def write_report(project: Path, report: dict) -> None:
         f"- 编码：{report['videoCodec']} + {report['audioCodec']}\n"
         f"- 文件字节：{report['bytes']}\n"
         f"- SHA-256：`{report['sha256']}`\n"
-        f"- 场景：{report['scenes']}；目标词事件：{report['targetOccurrences']}；音效：{report['soundEffects']}\n"
-        f"- 主观试听：{report['subjectiveAudio']}\n"
+        f"- 场景：{report['scenes']}；目标词事件：{report['targetOccurrences']}\n"
+        f"- 插画批次：最多并行 {report['illustrationPlan']['maxParallelScenes']} 幕；"
+        f"关键动作幕：{report['criticalActionScenes']}\n"
+        f"- 渲染策略：{report['renderPlan']['strategy']}；"
+        f"运行上限：{report['renderPlan']['timeoutSec']} 秒\n"
+        f"- 时长目标：{report['durationControl']['target']['acceptableMinSec']}–"
+        f"{report['durationControl']['target']['acceptableMaxSec']} 秒；"
+        f"TTS 预检：{report['durationControl']['estimatedDurationSec']} 秒\n"
+        f"- 音频技术检查：{'通过' if report['status'] == 'passed' else '未通过'}\n"
     )
     (build / "report.md").write_text(md, encoding="utf-8")
 
@@ -240,7 +369,9 @@ def main() -> None:
     project = Path(args.project).resolve()
     video = Path(args.video).resolve() if args.video else project / "out" / "story.mp4"
     try:
-        report, errors, _ = validate_video(project, video, decode=True)
+        report, errors, _ = validate_video(
+            project, video, decode=True, extract_frames=not args.no_report
+        )
         if args.subjective_audio_approved:
             report["subjectiveAudio"] = "approved"
         if not errors:

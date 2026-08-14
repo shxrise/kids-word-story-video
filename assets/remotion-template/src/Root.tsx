@@ -14,9 +14,24 @@ const FALLBACK: Story = {
     imageWidth: 1280,
     imageHeight: 720,
     fps: 20,
+    imageNormalization: 'stable-lanczos',
+    imageAspectTolerancePct: 1.0,
     ttsProvider: 'edge',
     voice: 'zh-CN-XiaoxiaoNeural',
     rate: '-15%',
+    targetPauseSec: 0,
+    targetVisualDurationSec: 1.2,
+    introTailSec: 0.6,
+    introTitle: '儿童故事',
+    pauseTargets: [],
+    durationTarget: {
+      targetSec: 330,
+      idealMinSec: 300,
+      idealMaxSec: 360,
+      acceptableMinSec: 285,
+      acceptableMaxSec: 375,
+      maxCreativeAdjustments: 2,
+    },
     theme: {
       bg: '#F7F1E3',
       card: '#FDFBF4',
@@ -52,7 +67,7 @@ export const RemotionRoot: React.FC = () => {
         const durationInFrames = Math.max(
           1,
           introDuration(story.meta, fps)
-            + story.scenes.reduce((sum, s) => sum + sceneDuration(s, fps), 0),
+            + story.scenes.reduce((sum, s) => sum + sceneDuration(s, story.meta, fps), 0),
         );
         return {durationInFrames, fps, width, height, props: {story}};
       }}

@@ -7,19 +7,28 @@ import {
   useVideoConfig,
 } from 'remotion';
 import {RollingCaption} from './RollingCaption';
-import {sceneDuration} from './timing';
+import {sceneDuration, visualTargetDuration} from './timing';
 import type {Scene, StoryMeta, TargetHighlight} from './types';
 
 const TargetWordLabel: React.FC<{
   event: TargetHighlight;
   scene: Scene;
+  meta: StoryMeta;
   currentTimeSec: number;
-}> = ({event, scene, currentTimeSec}) => {
+  collisionOffsetY: number;
+}> = ({event, scene, meta, currentTimeSec, collisionOffsetY}) => {
   const marker = scene.targetMarkers?.[event.word];
   if (!marker) return null;
+  const safeX = Math.max(6, Math.min(94, marker.x));
+  const safeY = Math.max(7, Math.min(78, marker.y));
 
-  const progress = (currentTimeSec - event.start) / event.duration;
-  const scale = interpolate(progress, [0, 0.08, 1], [0.96, 1, 1], {
+  const elapsed = Math.max(0, currentTimeSec - event.start);
+  const breathProgress = Math.min(1, elapsed / Math.min(1, visualTargetDuration(event, meta)));
+  const scale = interpolate(breathProgress, [0, 0.5, 1], [1, 1.05, 1], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  const opacity = interpolate(breathProgress, [0, 0.5, 1], [0.96, 1, 0.98], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
@@ -29,9 +38,10 @@ const TargetWordLabel: React.FC<{
       className="font-en"
       style={{
         position: 'absolute',
-        left: `${marker.x}%`,
-        top: `${marker.y}%`,
+        left: `${safeX}%`,
+        top: `calc(${safeY}% + ${collisionOffsetY}px)`,
         transform: `translate(-50%, -50%) scale(${scale})`,
+        opacity,
         zIndex: 5,
         padding: '7px 16px 8px',
         borderRadius: 10,
@@ -44,7 +54,7 @@ const TargetWordLabel: React.FC<{
         letterSpacing: 0.5,
       }}
     >
-      {event.word}
+      {event.displayWord}
     </div>
   );
 };
@@ -52,17 +62,22 @@ const TargetWordLabel: React.FC<{
 export const SceneView: React.FC<{
   scene: Scene;
   meta: StoryMeta;
-  index: number;
-  total: number;
-}> = ({scene}) => {
+}> = ({scene, meta}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const dur = sceneDuration(scene, fps);
+  const dur = sceneDuration(scene, meta, fps);
   const currentTimeSec = frame / fps;
   const progress = dur <= 1 ? 1 : frame / (dur - 1);
-  const activeHighlights = (scene.targetHighlights ?? []).filter(
-    (event) => currentTimeSec >= event.start && currentTimeSec < event.start + event.duration,
+  const activeEvents = (scene.targetHighlights ?? []).filter(
+    (event) => currentTimeSec >= event.start
+      && currentTimeSec < event.start + visualTargetDuration(event, meta),
   );
+  const activeByWord = new Map<string, TargetHighlight>();
+  for (const event of activeEvents) {
+    const existing = activeByWord.get(event.word);
+    if (!existing || event.start >= existing.start) activeByWord.set(event.word, event);
+  }
+  const activeHighlights = Array.from(activeByWord.values());
 
   return (
     <AbsoluteFill className="font-body" style={{backgroundColor: '#111'}}>
@@ -76,7 +91,23 @@ export const SceneView: React.FC<{
           key={`${event.word}-${event.start}-${eventIndex}`}
           event={event}
           scene={scene}
+          meta={meta}
           currentTimeSec={currentTimeSec}
+          collisionOffsetY={(() => {
+            const marker = scene.targetMarkers?.[event.word];
+            if (!marker) return 0;
+            const collisions = activeHighlights.slice(0, eventIndex).filter((other) => {
+              const otherMarker = scene.targetMarkers?.[other.word];
+              return otherMarker
+                && Math.abs(otherMarker.x - marker.x) < 12
+                && Math.abs(otherMarker.y - marker.y) < 10;
+            }).length;
+            if (collisions === 0) return 0;
+            if (marker.y < 20) return collisions * 54;
+            if (marker.y > 65) return -collisions * 54;
+            const step = Math.ceil(collisions / 2) * 54;
+            return collisions % 2 === 1 ? -step : step;
+          })()}
         />
       ))}
 

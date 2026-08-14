@@ -30,7 +30,6 @@ def main() -> None:
         "public/audio",
         "public/reference",
         "public/raw",
-        "public/sfx",
         "build",
         "out",
         "qa",

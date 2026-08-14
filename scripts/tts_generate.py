@@ -7,7 +7,6 @@ For each scene:
   - captures WordBoundary events for exact per-word timestamps
   - expands them to per-character reveal times (zhChars); punctuation between
     words inherits the previous word's end time so typing never stalls oddly
-  - distributes English caption chars (enChars) linearly across the narration
   - fills scene.audio / scene.audioDurationSec
 
 Usage:
@@ -28,9 +27,13 @@ import sys
 import time
 from pathlib import Path
 
+from duration_control import (
+    record_duration_preflight,
+    target_visual_duration_sec,
+)
 from project_runtime import discover_toolchain
 from tts_providers import synthesize as provider_synthesize
-from pipeline_state import mark_stage
+from pipeline_state import fail_stage, mark_stage
 
 
 def find_ffmpeg(project: Path) -> str:
@@ -123,12 +126,11 @@ def insert_silence_after_words(
 
 def apply_target_pauses(
     words: list,
-    targets: set[str],
+    targets: dict[str, str] | set[str],
     pause_sec: float,
-    highlight_sec: float,
-    highlight_through_pause: bool = False,
+    visual_duration_sec: float,
 ) -> tuple[list, list, list]:
-    """Shift word times after target pauses and create highlight events."""
+    """Shift audio boundaries for optional pauses and create independent visual events."""
     shifted = []
     highlights = []
     pause_points = []
@@ -139,19 +141,19 @@ def apply_target_pauses(
         adjusted["end"] = round(word["end"] + accumulated_pause, 3)
         token = normalized_word(word["text"])
         if token in targets:
-            highlight_duration = (
-                adjusted["end"] - adjusted["start"] + pause_sec
-                if highlight_through_pause
-                else highlight_sec
-            )
+            display_word = targets[token] if isinstance(targets, dict) else str(word["text"])
+            spoken_duration = max(0.001, adjusted["end"] - adjusted["start"])
             highlights.append(
                 {
                     "word": token,
+                    "displayWord": display_word,
                     "start": adjusted["start"],
-                    "duration": round(highlight_duration, 3),
+                    "spokenDurationSec": round(spoken_duration, 3),
+                    "visualDurationSec": round(max(spoken_duration, visual_duration_sec), 3),
                 }
             )
-            pause_points.append(word["end"])
+            if pause_sec > 0:
+                pause_points.append(word["end"])
             accumulated_pause += pause_sec
         shifted.append(adjusted)
     return shifted, highlights, pause_points
@@ -186,8 +188,6 @@ def input_hash(
     rate: str,
     pause_sec: float,
     targets: set[str],
-    highlight_sec: float = 1.0,
-    highlight_through_pause: bool = True,
 ) -> str:
     payload = json.dumps(
         {
@@ -197,8 +197,21 @@ def input_hash(
             "rate": rate,
             "pauseSec": pause_sec,
             "targets": sorted(targets),
-            "highlightSec": highlight_sec,
-            "highlightThroughPause": highlight_through_pause,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
+
+
+def timing_input_hash(
+    audio_hash: str, visual_duration_sec: float, target_spellings: dict[str, str]
+) -> str:
+    payload = json.dumps(
+        {
+            "ttsAudioInputHash": audio_hash,
+            "targetVisualDurationSec": visual_duration_sec,
+            "targetSpellings": sorted(target_spellings.items()),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -236,15 +249,6 @@ def char_timings(text: str, words: list) -> list:
     return chars
 
 
-def linear_timings(text: str, t0: float, t1: float) -> list:
-    """Reveal `text` linearly between t0 and t1 (used for the English line)."""
-    n = max(len(text), 1)
-    return [
-        {"c": ch, "t": round(t0 + (t1 - t0) * i / n, 3)}
-        for i, ch in enumerate(text)
-    ]
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("project", help="Remotion project directory")
@@ -253,6 +257,11 @@ def main():
     ap.add_argument("--rate", default="-15%")
     ap.add_argument("--force", action="store_true", help="re-synthesize existing audio")
     ap.add_argument("--retries", type=int, default=3)
+    ap.add_argument(
+        "--duration-preflight",
+        action="store_true",
+        help="Generate actual TTS early and enforce the configured duration gate before illustration",
+    )
     args = ap.parse_args()
 
     project = Path(args.project).resolve()
@@ -266,30 +275,28 @@ def main():
     voice = story.get("meta", {}).get("voice", args.voice)
     rate = story.get("meta", {}).get("rate", args.rate)
     pause_targets = {
-        normalized_word(word)
+        normalized_word(str(word)): str(word)
         for word in story.get("meta", {}).get("pauseTargets", [])
     }
     pause_sec = float(story.get("meta", {}).get("targetPauseSec", 0))
     if not math.isfinite(pause_sec) or pause_sec < 0:
         sys.exit("meta.targetPauseSec must be a finite nonnegative number")
-    highlight_sec = float(story.get("meta", {}).get("highlightSec", 1.0))
-    highlight_through_pause = bool(
-        story.get("meta", {}).get("highlightThroughPause", False)
-    )
+    try:
+        visual_duration_sec = target_visual_duration_sec(story.get("meta", {}))
+    except ValueError as exc:
+        sys.exit(str(exc))
 
     intro_title = str(story.get("meta", {}).get("introTitle", "")).strip()
     if not intro_title:
         sys.exit("meta.introTitle is required before TTS generation")
     intro_rel = "audio/intro-title.mp3"
     intro_mp3 = project / "public" / intro_rel
-    intro_hash = input_hash(provider, intro_title, voice, rate, 0, set(), 0, False)
+    intro_hash = input_hash(provider, intro_title, voice, rate, 0, set())
     if args.force or not intro_mp3.exists() or story["meta"].get("introTtsInputHash") != intro_hash:
         synthesize_with_retries(provider, intro_title, voice, rate, intro_mp3, args.retries)
     intro_dur = audio_duration_sec(ffmpeg, intro_mp3)
     story["meta"]["introAudio"] = intro_rel
     story["meta"]["introAudioDurationSec"] = round(intro_dur, 3)
-    # Kept as a compatibility field; it is derived, never authored as a fixed value.
-    story["meta"]["introDurationSec"] = round(intro_dur, 3)
     story["meta"]["introTtsInputHash"] = intro_hash
     write_story_atomic(story_path, story)
     print(f"intro title: {intro_dur:.2f}s -> {intro_rel}")
@@ -297,20 +304,44 @@ def main():
     for scene in story["scenes"]:
         rel = f"audio/scene-{scene['id']}.mp3"
         mp3 = project / "public" / rel
-        scene_hash = input_hash(
-            provider, scene["zh"], voice, rate, pause_sec, pause_targets,
-            highlight_sec, highlight_through_pause,
+        audio_hash = input_hash(
+            provider, scene["zh"], voice, rate, pause_sec, set(pause_targets),
         )
+        timing_hash = timing_input_hash(audio_hash, visual_duration_sec, pause_targets)
         if (
             mp3.exists()
             and scene.get("zhChars")
             and scene.get("targetHighlights") is not None
-            and scene.get("ttsInputHash") == scene_hash
+            and scene.get("ttsAudioInputHash") == audio_hash
+            and all(
+                isinstance(item, dict) and float(item.get("spokenDurationSec", 0) or 0) > 0
+                for item in scene.get("targetHighlights", [])
+            )
             and not args.force
         ):
-            print(f"scene {scene['id']}: audio exists, skipping (use --force to redo)")
+            if scene.get("ttsTimingInputHash") != timing_hash:
+                for item in scene.get("targetHighlights", []):
+                    item["displayWord"] = pause_targets.get(str(item.get("word", "")), str(item.get("word", "")))
+                    item["visualDurationSec"] = round(
+                        max(float(item["spokenDurationSec"]), visual_duration_sec), 3
+                    )
+                visual_end = max(
+                    (
+                        float(item["start"]) + float(item["visualDurationSec"])
+                        for item in scene.get("targetHighlights", [])
+                    ),
+                    default=0.0,
+                )
+                scene["visualTailSec"] = round(
+                    max(0.0, visual_end - float(scene.get("audioDurationSec", 0) or 0)), 3
+                )
+                scene["ttsTimingInputHash"] = timing_hash
+                write_story_atomic(story_path, story)
+                print(f"scene {scene['id']}: reused audio and refreshed visual timing")
+            else:
+                print(f"scene {scene['id']}: audio exists, skipping (use --force to redo)")
             continue
-        raw_mp3 = mp3.with_suffix(".raw.mp3") if pause_targets else mp3
+        raw_mp3 = mp3.with_suffix(".raw.mp3") if pause_targets and pause_sec > 0 else mp3
         words = synthesize_with_retries(provider, scene["zh"], voice, rate, raw_mp3, args.retries)
         highlights = []
         if pause_targets:
@@ -318,8 +349,7 @@ def main():
                 words,
                 pause_targets,
                 pause_sec,
-                highlight_sec,
-                highlight_through_pause,
+                visual_duration_sec,
             )
             expected_targets = [
                 normalized_word(word)
@@ -332,23 +362,49 @@ def main():
                     f"target boundary mismatch in scene {scene['id']}: "
                     f"expected {expected_targets}, got {actual_targets}"
                 )
-            insert_silence_after_words(
-                ffmpeg, raw_mp3, mp3, pause_points, pause_sec
-            )
+            if pause_sec > 0:
+                insert_silence_after_words(
+                    ffmpeg, raw_mp3, mp3, pause_points, pause_sec
+                )
         dur = audio_duration_sec(ffmpeg, mp3)
         scene["audio"] = rel
         scene["audioDurationSec"] = round(dur, 3)
         scene["zhChars"] = char_timings(scene["zh"], words)
         scene["targetHighlights"] = highlights
-        en_t0 = words[0]["start"] + 0.25
-        en_t1 = words[-1]["end"]
-        scene["enChars"] = linear_timings(scene["en"], en_t0, en_t1)
-        scene["ttsInputHash"] = scene_hash
+        visual_end = max(
+            (
+                float(item["start"]) + float(item["visualDurationSec"])
+                for item in highlights
+            ),
+            default=0.0,
+        )
+        scene["visualTailSec"] = round(max(0.0, visual_end - dur), 3)
+        scene["ttsAudioInputHash"] = audio_hash
+        scene["ttsTimingInputHash"] = timing_hash
         write_story_atomic(story_path, story)
         print(f"scene {scene['id']}: {dur:.2f}s, {len(words)} words -> {rel}")
 
     write_story_atomic(story_path, story)
-    mark_stage(project, "narration_ready", {"provider": provider, "voice": voice, "rate": rate})
+    if args.duration_preflight:
+        report = record_duration_preflight(project, story)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if report["status"] != "passed":
+            fail_stage(project, "duration_preflight_ready", str(report.get("reason")))
+            sys.exit(2)
+        mark_stage(
+            project,
+            "duration_preflight_ready",
+            {
+                "measurement": report["measurement"],
+                "targetRangeSec": [
+                    report["target"]["acceptableMinSec"],
+                    report["target"]["acceptableMaxSec"],
+                ],
+                "estimatedDurationSec": report["estimatedDurationSec"],
+            },
+        )
+    else:
+        mark_stage(project, "narration_ready", {"provider": provider, "voice": voice, "rate": rate})
     print(f"updated {story_path}")
 
 

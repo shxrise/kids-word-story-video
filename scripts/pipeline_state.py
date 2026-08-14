@@ -11,16 +11,17 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from project_runtime import atomic_json, fingerprint_files, sha256_file, sha256_json
+from duration_control import duration_input
+from project_runtime import atomic_json, fingerprint_files, safe_child, sha256_file, sha256_json
 
 
 STAGES = [
     "initialized",
     "story_validated",
+    "duration_preflight_ready",
     "image_probe_passed",
     "images_ready",
     "narration_ready",
-    "sfx_ready",
     "visual_qa_ready",
     "rendered",
     "mp4_validated",
@@ -67,13 +68,14 @@ def content_projection(story: dict) -> dict:
     meta_keys = (
         "schemaVersion", "category", "series", "width", "height", "imageWidth", "imageHeight",
         "fps", "imageNormalization", "imageAspectTolerancePct", "voice", "rate", "ttsProvider",
-        "targetPauseSec", "highlightSec", "highlightThroughPause", "sfxDensity", "introTitle",
-        "pauseTargets", "theme",
+        "targetPauseSec", "targetVisualDurationSec", "introTailSec", "durationTarget",
+        "introTitle", "pauseTargets", "theme",
     )
     scenes = []
     for scene in story.get("scenes", []):
         scenes.append({key: copy.deepcopy(scene.get(key)) for key in (
-            "id", "title", "zh", "en", "image", "imagePrompt", "characterIds", "visualRequirements"
+            "id", "title", "zh", "image", "imagePrompt", "characterIds",
+            "visualRequirements", "imageGeneration"
         )})
     return {
         "meta": {key: copy.deepcopy(meta.get(key)) for key in meta_keys},
@@ -98,27 +100,29 @@ def narration_projection(story: dict) -> dict:
         "voice": story.get("meta", {}).get("voice"),
         "rate": story.get("meta", {}).get("rate"),
         "intro": {key: story.get("meta", {}).get(key) for key in (
-            "introTitle", "introAudio", "introAudioDurationSec", "introTtsInputHash"
+            "introTitle", "introAudio", "introAudioDurationSec", "introTailSec", "introTtsInputHash"
         )},
         "scenes": [
             {key: copy.deepcopy(scene.get(key)) for key in (
-                "id", "zh", "audio", "audioDurationSec", "ttsInputHash", "targetHighlights", "zhChars", "enChars"
+                "id", "zh", "audio", "audioDurationSec", "ttsAudioInputHash", "ttsTimingInputHash",
+                "targetHighlights", "zhChars", "visualTailSec",
             )}
             for scene in story.get("scenes", [])
         ],
     }
 
 
-def sfx_projection(story: dict) -> dict:
-    return {
-        "catalog": copy.deepcopy(story.get("sfxCatalog", {})),
-        "scenes": [{"id": scene.get("id"), "sfx": copy.deepcopy(scene.get("sfx", []))} for scene in story.get("scenes", [])],
-    }
-
-
 def referenced_files(project: Path, relatives: list[str]) -> list[Path]:
     public = project / "public"
-    return [public / item for item in relatives if item]
+    paths: list[Path] = []
+    for item in relatives:
+        if not item:
+            continue
+        try:
+            paths.append(safe_child(public, item, "story public path")[1])
+        except ValueError:
+            paths.append(public / "__invalid_path__" / sha256_json(item))
+    return paths
 
 
 def stage_fingerprint(project: Path, stage: str) -> tuple[str, list[dict]]:
@@ -129,6 +133,13 @@ def stage_fingerprint(project: Path, stage: str) -> tuple[str, list[dict]]:
     if stage == "story_validated":
         projection = content_projection(story)
         return sha256_json(projection), [{"kind": "story-content", "sha256": sha256_json(projection)}]
+    if stage == "duration_preflight_ready":
+        report = project / "build" / "duration-preflight.json"
+        file_hash, evidence = fingerprint_files(project, [report])
+        projection_hash = sha256_json(duration_input(story))
+        return sha256_json({"projection": projection_hash, "files": file_hash}), [
+            {"kind": "duration-preflight-input", "sha256": projection_hash}, *evidence
+        ]
     if stage == "image_probe_passed":
         return fingerprint_files(project, [project / "build" / "image-probe.json"])
     if stage == "images_ready":
@@ -137,6 +148,7 @@ def stage_fingerprint(project: Path, stage: str) -> tuple[str, list[dict]]:
         files = referenced_files(project, relatives) + [
             project / "public" / "story" / "image-sources.json",
             project / "public" / "story" / "visual-reviews.json",
+            project / "build" / "image-generation-plan.json",
         ]
         file_hash, evidence = fingerprint_files(project, files)
         projection_hash = sha256_json(image_projection(story))
@@ -150,15 +162,6 @@ def stage_fingerprint(project: Path, stage: str) -> tuple[str, list[dict]]:
         projection_hash = sha256_json(narration_projection(story))
         return sha256_json({"projection": projection_hash, "files": file_hash}), [
             {"kind": "narration-contract", "sha256": projection_hash}, *evidence
-        ]
-    if stage == "sfx_ready":
-        catalog = story.get("sfxCatalog", {})
-        files = referenced_files(project, [str(asset.get("src", "")) for asset in catalog.values() if isinstance(asset, dict)])
-        files.append(project / "public" / "story" / "sfx-recipes.json")
-        file_hash, evidence = fingerprint_files(project, files)
-        projection_hash = sha256_json(sfx_projection(story))
-        return sha256_json({"projection": projection_hash, "files": file_hash}), [
-            {"kind": "sfx-contract", "sha256": projection_hash}, *evidence
         ]
     if stage == "visual_qa_ready":
         manifest = project / "qa" / "manifest.json"
@@ -204,7 +207,16 @@ def load_state(project: Path, audit: bool = True) -> dict:
     if path.is_file():
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("schemaVersion") != 2:
-            raise ValueError("state.json is not v2; create a fresh project with the optimized skill")
+            raise ValueError("state.json schemaVersion must be 2")
+        stages = data.setdefault("stages", {})
+        state_changed = False
+        for stage in STAGES:
+            if stage not in stages:
+                stages[stage] = stage_record()
+                state_changed = True
+        if state_changed:
+            data["updatedAt"] = now_iso()
+            atomic_json(path, data)
     else:
         data = default_state(project)
         atomic_json(path, data)
@@ -253,6 +265,14 @@ def mark_stage(project: Path, stage: str, details: dict | None = None) -> dict:
         probe = json.loads(probe_path.read_text(encoding="utf-8")) if probe_path.is_file() else {}
         if probe.get("accepted") is not True:
             raise ValueError("cannot complete image_probe_passed; probe image did not pass aspect policy")
+    if stage == "duration_preflight_ready":
+        report_path = project / "build" / "duration-preflight.json"
+        report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
+        if report.get("status") != "passed":
+            raise ValueError("cannot complete duration_preflight_ready; actual TTS duration gate did not pass")
+        expected_input = sha256_json(duration_input(load_story(project)))
+        if report.get("inputSha256") != expected_input:
+            raise ValueError("cannot complete duration_preflight_ready; duration report is stale")
     if stage == "visual_qa_ready":
         if not str((details or {}).get("reviewer", "")).strip():
             raise ValueError("visual_qa_ready requires --detail reviewer=<name-or-agent>")

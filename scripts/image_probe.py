@@ -9,8 +9,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from normalize_image import TARGET_RATIO, image_size, sha256
-from project_runtime import atomic_json
+from normalize_image import TARGET_RATIO
+from project_runtime import atomic_json, image_size, sha256_file
 from pipeline_state import mark_stage
 
 
@@ -29,7 +29,7 @@ def main() -> None:
     report = {
         "schemaVersion": 1,
         "source": str(source),
-        "sourceSha256": sha256(source),
+        "sourceSha256": sha256_file(source),
         "width": width,
         "height": height,
         "aspectErrorPct": round(error, 6),

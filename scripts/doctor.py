@@ -20,6 +20,7 @@ from project_runtime import (
 
 
 MIN_PYTHON = (3, 10)
+MIN_NODE_MAJOR = 22
 MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
 WARN_FREE_BYTES = 8 * 1024 * 1024 * 1024
 
@@ -128,8 +129,13 @@ def main() -> None:
         matched = re.search(r"(\d+)\.(\d+)", python_version)
         if not matched or tuple(map(int, matched.groups())) < MIN_PYTHON:
             errors.append(f"Python 3.10+ is required, got {python_version}")
-    if not tools.get("node"):
-        errors.append("Node.js not found; pass --node from the Codex workspace runtime")
+    node_version = version(tools.get("node"), "--version")
+    if not tools.get("node") or not node_version:
+        errors.append("Node.js 22+ not found; pass --node from the Codex workspace runtime")
+    else:
+        matched = re.search(r"v?(\d+)", node_version)
+        if not matched or int(matched.group(1)) < MIN_NODE_MAJOR:
+            errors.append(f"Node.js 22+ is required, got {node_version}")
     if not tools.get("pnpm"):
         errors.append("pnpm not found; pass --pnpm from the Codex workspace runtime")
 
@@ -176,7 +182,7 @@ def main() -> None:
         "toolchain": tools,
         "versions": {
             "python": python_version,
-            "node": version(tools.get("node"), "--version"),
+            "node": node_version,
             "pnpm": version(tools.get("pnpm"), "--version"),
         },
         "ttsProvider": args.tts_provider,

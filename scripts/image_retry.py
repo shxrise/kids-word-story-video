@@ -11,8 +11,7 @@ from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
 
-from normalize_image import image_size
-from project_runtime import atomic_json, sha256_file
+from project_runtime import atomic_json, image_size, sha256_file
 
 
 TARGET_RATIO = 16 / 9

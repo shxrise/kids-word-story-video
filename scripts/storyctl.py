@@ -11,11 +11,22 @@ import re
 import sys
 from pathlib import Path
 
+from duration_control import (
+    DEFAULT_DURATION_TARGET,
+    DEFAULT_INTRO_TAIL_SEC,
+    DEFAULT_TARGET_VISUAL_DURATION_SEC,
+    duration_target,
+    finite_number,
+)
 from project_runtime import atomic_json
 
 
 FEMALE_VOICE = "zh-CN-XiaoxiaoNeural"
 WORD_RE = re.compile(r"[A-Za-z]+")
+CHINESE_TITLE_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff《》！？·]+")
+CHINESE_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+TARGET_RE = re.compile(r"[A-Za-z]+")
+SERIAL_REASONS = ("continuous-action", "prop-state", "previous-image-reference", "manual")
 
 
 def story_path(project: Path) -> Path:
@@ -76,6 +87,66 @@ def replace_minor_requirement(requirements: dict, field: str, old: str, new: str
     values[values.index(old)] = new
 
 
+def validate_intro_title(title: str) -> str:
+    value = title.strip()
+    if not CHINESE_TITLE_RE.fullmatch(value):
+        raise ValueError("intro title must use Chinese text and title punctuation only, with no letters or digits")
+    chinese_length = len(CHINESE_CHAR_RE.findall(value))
+    if not 4 <= chinese_length <= 18:
+        raise ValueError("intro title must be a complete Chinese story name of 4–18 characters; 6–10 is preferred")
+    return value
+
+
+def add_action_contract_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--critical-action", action="store_true")
+    parser.add_argument("--action-subject")
+    parser.add_argument("--body-part-or-tool")
+    parser.add_argument("--action-object")
+    parser.add_argument("--contact")
+    parser.add_argument("--relative-position")
+    parser.add_argument("--direction")
+    parser.add_argument("--result")
+    parser.add_argument("--forbid-alternative", action="append", default=[])
+
+
+def critical_action_from_args(args: argparse.Namespace) -> dict | None:
+    fields = {
+        "subject": args.action_subject,
+        "bodyPartOrTool": args.body_part_or_tool,
+        "object": args.action_object,
+        "contact": args.contact,
+        "relativePosition": args.relative_position,
+        "direction": args.direction,
+        "result": args.result,
+    }
+    provided = args.critical_action or any(value is not None for value in fields.values()) or bool(
+        args.forbid_alternative
+    )
+    if not provided:
+        return None
+    missing = [key for key, value in fields.items() if not str(value or "").strip()]
+    if missing:
+        raise ValueError(f"critical action is missing required details: {missing}")
+    return {
+        key: str(value).strip() for key, value in fields.items()
+    } | {"forbiddenAlternatives": [item.strip() for item in args.forbid_alternative if item.strip()]}
+
+
+def action_prompt_clause(action: dict) -> str:
+    forbidden = action.get("forbiddenAlternatives", [])
+    suffix = f"；不得替代为：{'、'.join(forbidden)}" if forbidden else ""
+    return (
+        f"关键动作合同：{action['subject']}使用{action['bodyPartOrTool']}作用于{action['object']}；"
+        f"接触方式：{action['contact']}；相对位置：{action['relativePosition']}；"
+        f"运动方向：{action['direction']}；动作结果：{action['result']}{suffix}。"
+    )
+
+
+def without_action_prompt_clause(prompt: str) -> str:
+    marker = "关键动作合同："
+    return prompt.split(marker, 1)[0].rstrip("。 ") if marker in prompt else prompt.rstrip()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("project")
@@ -115,13 +186,15 @@ def main() -> None:
     add_scene.add_argument("--must-not-show", action="append", default=[])
     add_scene.add_argument("--action", required=True)
     add_scene.add_argument("--continuity", action="append", default=[])
+    add_scene.add_argument("--depends-on", action="append", default=[])
+    add_scene.add_argument("--serial-reason", action="append", choices=SERIAL_REASONS, default=[])
+    add_action_contract_args(add_scene)
 
     marker = sub.add_parser("set-marker")
     marker.add_argument("scene")
     marker.add_argument("word")
     marker.add_argument("--x", type=float, required=True)
     marker.add_argument("--y", type=float, required=True)
-    marker.add_argument("--size", type=float, default=140)
     marker.add_argument("--source", choices=("visual-review", "tts-boundary", "scene-default"), default="visual-review")
     marker.add_argument("--confidence", type=float, default=1.0)
     marker.add_argument("--reviewer", required=True)
@@ -132,6 +205,7 @@ def main() -> None:
     requirements.add_argument("--must-not-show", action="append", default=[])
     requirements.add_argument("--action", required=True)
     requirements.add_argument("--continuity", action="append", default=[])
+    add_action_contract_args(requirements)
 
     adjust = sub.add_parser("adjust-scene")
     adjust.add_argument("scene")
@@ -143,16 +217,6 @@ def main() -> None:
     adjust.add_argument("--replace-continuity", nargs=2, action="append", metavar=("OLD", "NEW"), default=[])
     adjust.add_argument("--reason", required=True)
 
-    sfx = sub.add_parser("add-sfx")
-    sfx.add_argument("scene")
-    sfx.add_argument("asset_id")
-    sfx.add_argument("--start", type=float, required=True)
-    sfx.add_argument("--duration", type=float, required=True)
-    sfx.add_argument("--volume", type=float, required=True)
-    sfx.add_argument("--fade-in", type=float, default=0.12)
-    sfx.add_argument("--fade-out", type=float, default=0.18)
-    sfx.add_argument("--purpose", required=True)
-
     sub.add_parser("summary")
     args = parser.parse_args()
     project = Path(args.project).resolve()
@@ -160,17 +224,24 @@ def main() -> None:
     try:
         if args.command == "init-meta":
             targets = [item.strip() for item in args.targets if item.strip()]
+            if not targets or any(not TARGET_RE.fullmatch(item) for item in targets):
+                raise ValueError("targets must contain ASCII English letters only")
             if len(targets) != len(set(item.lower() for item in targets)):
                 raise ValueError("targets must be unique")
             story.setdefault("meta", {}).update({
                 "schemaVersion": 2,
-                "introTitle": args.title,
+                "introTitle": validate_intro_title(args.title),
                 "pauseTargets": targets,
                 "voice": args.voice,
                 "rate": args.rate,
                 "ttsProvider": args.tts_provider,
             })
             story["meta"].setdefault("targetPauseSec", 0.0)
+            story["meta"].setdefault(
+                "targetVisualDurationSec", DEFAULT_TARGET_VISUAL_DURATION_SEC
+            )
+            story["meta"].setdefault("introTailSec", DEFAULT_INTRO_TAIL_SEC)
+            story["meta"].setdefault("durationTarget", dict(DEFAULT_DURATION_TARGET))
         elif args.command == "set-meta":
             if args.key in {"width", "height", "imageWidth", "imageHeight", "fps"}:
                 raise ValueError("fixed output profile fields cannot be edited")
@@ -179,6 +250,14 @@ def main() -> None:
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                     raise ValueError("targetPauseSec must be a finite nonnegative number")
                 value = float(value)
+            elif args.key == "targetVisualDurationSec":
+                value = finite_number(value, "targetVisualDurationSec", minimum=0.05)
+            elif args.key == "introTailSec":
+                value = finite_number(value, "introTailSec")
+            elif args.key == "durationTarget":
+                value = duration_target({"durationTarget": value})
+            elif args.key == "introTitle":
+                value = validate_intro_title(str(value))
             story.setdefault("meta", {})[args.key] = value
         elif args.command == "set-visual-bible":
             story["visualBible"] = {
@@ -203,31 +282,59 @@ def main() -> None:
             unknown = sorted(set(args.character) - known)
             if unknown:
                 raise ValueError(f"unknown character ids: {unknown}")
+            dependencies = list(dict.fromkeys(args.depends_on))
+            known_scene_ids = {str(item.get("id")) for item in scenes}
+            unknown_dependencies = sorted(set(dependencies) - known_scene_ids)
+            if unknown_dependencies:
+                raise ValueError(f"image dependencies must refer to earlier scenes: {unknown_dependencies}")
+            critical_action = critical_action_from_args(args)
+            prompt = without_action_prompt_clause(args.prompt.strip())
+            if critical_action:
+                prompt = f"{prompt.rstrip('。 ')}。{action_prompt_clause(critical_action)}"
+            visual_requirements = {
+                "mustShow": args.must_show, "mustNotShow": args.must_not_show,
+                "action": args.action, "continuity": args.continuity,
+            }
+            if critical_action:
+                visual_requirements["criticalAction"] = critical_action
             scenes.append({
-                "id": args.id, "title": args.title, "zh": args.zh, "en": "",
-                "image": args.image.replace("\\", "/"), "imagePrompt": args.prompt,
+                "id": args.id, "title": args.title, "zh": args.zh,
+                "image": args.image.replace("\\", "/"), "imagePrompt": prompt,
                 "characterIds": args.character,
-                "visualRequirements": {
-                    "mustShow": args.must_show, "mustNotShow": args.must_not_show,
-                    "action": args.action, "continuity": args.continuity,
+                "visualRequirements": visual_requirements,
+                "imageGeneration": {
+                    "dependsOn": dependencies,
+                    "serialReasons": list(dict.fromkeys(args.serial_reason)),
                 },
-                "targetMarkers": {}, "sfx": [],
+                "targetMarkers": {},
             })
         elif args.command == "set-marker":
             if not (0 <= args.x <= 100 and 0 <= args.y <= 100 and 0 <= args.confidence <= 1):
                 raise ValueError("marker x/y must be 0..100 and confidence must be 0..1")
             scene = scene_by_id(story, args.scene)
             scene.setdefault("targetMarkers", {})[args.word.lower()] = {
-                "x": args.x, "y": args.y, "size": args.size,
+                "x": args.x, "y": args.y,
                 "source": args.source, "confidence": args.confidence, "reviewer": args.reviewer,
             }
         elif args.command == "set-visual-requirements":
-            scene_by_id(story, args.scene)["visualRequirements"] = {
+            critical_action = critical_action_from_args(args)
+            visual_requirements = {
                 "mustShow": args.must_show,
                 "mustNotShow": args.must_not_show,
                 "action": args.action,
                 "continuity": args.continuity,
             }
+            if critical_action:
+                visual_requirements["criticalAction"] = critical_action
+            scene = scene_by_id(story, args.scene)
+            scene["visualRequirements"] = visual_requirements
+            prompt = without_action_prompt_clause(str(scene.get("imagePrompt", "")))
+            if critical_action:
+                scene["imagePrompt"] = (
+                    f"{prompt.rstrip('。 ')}。{action_prompt_clause(critical_action)}"
+                )
+            else:
+                scene["imagePrompt"] = prompt
         elif args.command == "adjust-scene":
             if not semantic_retries_exhausted(project, args.scene):
                 raise ValueError("adjust-scene is allowed only after the initial image and two semantic retries are exhausted")
@@ -248,7 +355,10 @@ def main() -> None:
                 if normalized_target_sequence(old_zh, targets) != normalized_target_sequence(args.zh, targets):
                     raise ValueError("narration adjustment must preserve the target-word sequence exactly")
                 scene["zh"] = args.zh
-                for key in ("audio", "audioDurationSec", "zhChars", "enChars", "targetHighlights", "ttsInputHash"):
+                for key in (
+                    "audio", "audioDurationSec", "zhChars", "targetHighlights",
+                    "visualTailSec", "ttsAudioInputHash", "ttsTimingInputHash",
+                ):
                     scene.pop(key, None)
                 changed.append("zh")
             if args.action is not None and args.action != scene.get("visualRequirements", {}).get("action", ""):
@@ -279,24 +389,27 @@ def main() -> None:
                 "reason": args.reason.strip(),
                 "changedFields": changed,
             })
-        elif args.command == "add-sfx":
-            scene = scene_by_id(story, args.scene)
-            cues = scene.setdefault("sfx", [])
-            if len(cues) >= 2:
-                raise ValueError(f"scene {args.scene} already has the maximum of two sound effects")
-            cues.append({
-                "assetId": args.asset_id, "startSec": args.start, "durationSec": args.duration,
-                "volume": args.volume, "fadeInSec": args.fade_in, "fadeOutSec": args.fade_out,
-                "purpose": args.purpose,
-            })
         else:
             summary = {
                 "schemaVersion": story.get("meta", {}).get("schemaVersion"),
                 "title": story.get("meta", {}).get("introTitle"),
                 "voice": story.get("meta", {}).get("voice"),
                 "ttsProvider": story.get("meta", {}).get("ttsProvider"),
+                "targetPauseSec": story.get("meta", {}).get("targetPauseSec"),
+                "targetVisualDurationSec": story.get("meta", {}).get("targetVisualDurationSec"),
+                "introTailSec": story.get("meta", {}).get("introTailSec"),
+                "durationTarget": story.get("meta", {}).get("durationTarget"),
                 "targets": story.get("meta", {}).get("pauseTargets", []),
                 "scenes": len(story.get("scenes", [])),
+                "criticalActionScenes": sum(
+                    bool(item.get("visualRequirements", {}).get("criticalAction"))
+                    for item in story.get("scenes", [])
+                ),
+                "serialIllustrationScenes": sum(
+                    bool(item.get("imageGeneration", {}).get("dependsOn"))
+                    or bool(item.get("imageGeneration", {}).get("serialReasons"))
+                    for item in story.get("scenes", [])
+                ),
                 "visualRequirementsReady": sum(bool(item.get("visualRequirements")) for item in story.get("scenes", [])),
             }
             print(json.dumps(summary, ensure_ascii=False, indent=2))

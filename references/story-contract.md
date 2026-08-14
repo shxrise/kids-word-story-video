@@ -20,10 +20,10 @@
 - `scene.zh` 同时是字幕和 TTS 文本；主体必须是中文，英文正则词元只能来自 `meta.pauseTargets`。
 - 禁止完整英文句子和非目标英文专名。使用自然混合句，例如：`爸爸打开 bag，发现一个圆圆的 apple。`
 - 每个目标词至少出现 2 次，通常自然出现 3～5 次；每次必须能在该幕画面中定位。
-- `meta.introTitle` 必须是自然的全中文标题，不含英文字母、目标词或数字。
-- 通常 18～25 幕，推荐约 21 幕；不为凑数破坏故事。每幕通常 45～75 个中文字符，只承载一个主要动作、地点或视觉结论。
+- `meta.introTitle` 必须是自然、完整、像真正儿童故事名的全中文短语，不含英文字母、目标词或数字。优先包含人物、事件、行动或悬念，建议 6～10 个中文字符，可按语义适当变通；避免只堆叠地点、物品和抽象词。
+- 默认倾向 22～25 幕；不为凑数破坏故事。每幕通常 55～75 个中文字符，只承载一个主要动作、地点或视觉结论。
 - 旁白顺序必须与画面内容一致；地点、主体或主要动作明显变化时拆幕。
-- 总时长由故事、旁白和目标词停顿自然决定，不机械平均每幕长度。
+- 默认以约 330 秒为创作中心，理想范围 300～360 秒，真实 TTS 可接受范围 285～375 秒。用户明确指定其他时长时，在创作前把 `durationTarget` 的中心、理想范围和可接受范围写入项目，并以该配置为准。通过线索、尝试、失败、互动、转折、高潮和结尾回顾形成自然时长；不机械平均每幕长度，不重复目标词、放慢语速或插入空白凑时长。
 
 ## 3. 每个项目动态生成视觉设定
 
@@ -61,11 +61,15 @@
 - 保存原图、哈希、实际尺寸、比例偏差和缩放因子；禁止裁切、补边和接收明显错误比例。
 - `targetMarkers.x/y` 是最终1280×720图片的百分比坐标，必须看图后填写。
 
+当主要动作影响剧情理解、目标词识别或角色/道具连续性时，使用 `visualRequirements.criticalAction` 记录动作主体、身体部位或工具、作用对象、接触方式、相对位置、运动方向和动作结果；存在容易混淆且会改变语义的替代动作时，再记录 `forbiddenAlternatives`。这些要点必须进入提示词和语义审核。普通背景、光线、装饰和无关姿态不做逐项硬约束。
+
+角色参考图和首张测试图串行生成。正式场景通过 `image_batch_plan.py` 规划，默认每批最多三个互不依赖的场景。前后连续动作、道具状态继承或后一幕参考前图时，用 `imageGeneration.dependsOn` 和 `serialReasons` 记录依赖并串行。比例/语义重试、限流、图片混淆或连续性/质量下降时改用串行重试计划；规划器从语义审核清单识别并跳过已通过图片，只重新处理失败项、未完成项及受影响的后续场景。
+
 ## 5. story.json 核心字段
 
 新项目的 `story.json` 必须引用同目录 `story.schema.json`。Schema 供 IDE 和外部工具做基础结构检查；`validate_story.py` 继续负责词频、跨文件、图片哈希、语义审核、音频和时间线等无法只靠 JSON Schema 表达的规则。
 
-核心元数据（停顿时长可配置）：
+核心元数据：
 
 ```json
 {
@@ -85,16 +89,23 @@
     "voice": "zh-CN-XiaoxiaoNeural",
     "rate": "-15%",
     "targetPauseSec": 0.0,
-    "highlightSec": 1.0,
-    "highlightThroughPause": true,
-    "sfxDensity": "standard",
+    "targetVisualDurationSec": 1.2,
+    "introTailSec": 0.6,
+    "durationTarget": {
+      "targetSec": 330.0,
+      "idealMinSec": 300.0,
+      "idealMaxSec": 360.0,
+      "acceptableMinSec": 285.0,
+      "acceptableMaxSec": 375.0,
+      "maxCreativeAdjustments": 2
+    },
     "introTitle": "全中文故事标题",
     "pauseTargets": ["数量灵活的目标词"]
   }
 }
 ```
 
-不要手写 `introDurationSec`；TTS 脚本根据标题音频写入。
+不要手写 `introAudioDurationSec`；TTS 脚本从真实标题音频取得。`introTailSec` 是独立的视觉尾停留配置，不属于音频数据。
 
 每幕在 TTS 前至少包含：
 
@@ -103,7 +114,6 @@
   "id": "01",
   "title": "内部场景名，不在成片显示",
   "zh": "中文主体混合旁白",
-  "en": "",
   "image": "assets/scene-01.png",
   "imagePrompt": "native 16:9 全彩绘本插画提示词",
   "characterIds": ["hero"],
@@ -111,31 +121,60 @@
     "mustShow": ["必须清楚出现的角色、目标物和位置"],
     "mustNotShow": ["本幕禁止出现的角色、物体、文字和动作"],
     "action": "本幕唯一主要动作",
-    "continuity": ["跨幕必须保持的外观和道具状态"]
+    "continuity": ["跨幕必须保持的外观和道具状态"],
+    "criticalAction": {
+      "subject": "动作主体",
+      "bodyPartOrTool": "使用的身体部位或工具",
+      "object": "作用对象",
+      "contact": "接触方式",
+      "relativePosition": "主体与对象的相对位置",
+      "direction": "运动方向",
+      "result": "动作完成后的可见结果",
+      "forbiddenAlternatives": ["必要时排除的替代动作"]
+    }
+  },
+  "imageGeneration": {
+    "dependsOn": [],
+    "serialReasons": []
   },
   "targetMarkers": {
-    "apple": {"x": 55, "y": 62, "size": 140, "source": "visual-review", "confidence": 1.0, "reviewer": "审核者"}
-  },
-  "sfx": []
+    "apple": {"x": 55, "y": 62, "source": "visual-review", "confidence": 1.0, "reviewer": "审核者"}
+  }
 }
 ```
 
-`size` 是兼容字段，词标不绘制圆圈。半透明词标默认用 36px 英文字号，比旧默认 28px 放大两个 4px 级别。音效和 `sfxCatalog` 格式见 [sound-design.md](sound-design.md)。TTS 脚本负责写入标题音频与实际时长，以及各幕 `audio`、`audioDurationSec`、`zhChars`、`enChars` 和 `targetHighlights`。
+`criticalAction` 只在关键动作幕出现；普通幕不需要为了填字段而制造约束。半透明词标默认用 36px 英文字号。TTS 脚本负责写入标题音频与实际时长，以及各幕 `audio`、`audioDurationSec`、`zhChars` 和 `targetHighlights`。
+
+每个新目标词事件分别记录真实发音和视觉展示：
+
+```json
+{
+  "word": "apple",
+  "displayWord": "apple",
+  "start": 2.35,
+  "spokenDurationSec": 0.42,
+  "visualDurationSec": 1.2
+}
+```
+
+`word` 是用于时间线和 marker 查找的小写键，`displayWord` 必须逐字保留用户提交的拼写并用于画面词标。`spokenDurationSec` 只能来自 TTS WordBoundary。`visualDurationSec` 至少等于 `targetVisualDurationSec` 和真实发音时长中的较大值；接近场景末尾时，时间线只补足必要的画面尾帧。
 
 ## 6. 内容审计
 
 生成图片前确认：
 
 - `pauseTargets` 非空、无重复，恰好是用户给定的目标词；不限定总数。
-- 标题全中文；正文所有英文词元都属于目标词。
+- 标题全中文；正文所有英文词元都逐字匹配用户提交的目标词，不增加、漏掉、重复录入或改变拼写与字母大小写。
+- 标题语义自然完整，像真正的儿童故事名，不是地点、物品和抽象词的悬空组合。
 - 每个目标词至少出现 2 次，每幕目标词均能被当前画面定位。
+- 故事文本完成后先生成真实 TTS 并通过 `duration_preflight_ready`，再进入批量生图；报告记录目标范围、TTS 预计时长和尝试次数。
 - 场景数和节奏服务故事，画面不长期滞后于旁白。
 - `visualBible` 完全来自本故事，角色 ID 唯一，每个角色有明确固定特征。
 - 所有提示词要求原生 16:9；所有最终插画为1280×720，原图规格化过程可追溯。
 - 每幕都有 `visualRequirements`；最终图片的语义审核记录仍匹配当前图片与当前要求。首图失败后最多重试两次；三张都偏差时比较后采用偏差最小者，以 `accepted-minor` 记录不影响大局的具体偏差，或仅对该幕做受约束的小幅调整并重新验证。不得改变目标词序列、主要角色、故事主线、因果结果或多幕连续性。
-- 每幕音效不超过 2 个，素材来源和许可证可追溯。
+- 关键动作幕的结构化动作细节完整进入提示词；场景依赖计划每批不超过三个独立场景，所有连续动作和继承状态均串行。
 
-`targetPauseSec` 必须是非负数。默认 `0.0` 表示不插入静音；`0.3`、`1.0` 等正值继续插入真实静音，词标覆盖读词和该停顿。可用 `storyctl.py <项目> set-meta targetPauseSec 0.3` 修改。
+`targetPauseSec` 必须是非负数。默认 `0.0` 表示不插入静音；`0.3`、`1.0` 等正值插入真实静音。`targetVisualDurationSec` 独立控制词标最短可读时长，默认 `1.2` 秒，不因停顿为零而缩短。可分别使用 `storyctl.py <项目> set-meta targetPauseSec 0.3` 和 `storyctl.py <项目> set-meta targetVisualDurationSec 1.2` 修改。
 
 三张候选都偏差时，优先选择最接近原合同的图片。若轻微调整单幕更自然，使用：
 

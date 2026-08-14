@@ -1,38 +1,34 @@
 # Kids Word Story Video
 
-[中文](#中文) · [English](#english)
+<p align="center">
+  <a href="#中文"><img src="docs/readme-language-zh.svg" alt="切换到中文说明" height="44"></a>
+  &nbsp;&nbsp;
+  <a href="#english"><img src="docs/readme-language-en.svg" alt="Switch to the English documentation" height="44"></a>
+</p>
 
-## 实际流程示例 / Workflow example
-
-1. 确认目标词和制作设置。 / Confirm the target words and production settings.
-
-   ![儿童单词故事视频制作确认单](docs/images/01-confirmation-card.png)
-
-2. 生成并审核故事插画，必要时按规则重试。 / Generate and review story illustrations, retrying when needed.
-
-   ![儿童单词故事视频插画生成与审核](docs/images/02-illustration-review.png)
-
-3. 完成渲染，并交付成片与验收结果。 / Render the video and deliver it with QA results.
-
-   ![儿童单词故事视频成片与验收结果](docs/images/03-final-video-and-qa.png)
+<p align="center"><strong>将自定义英语单词编成连贯的儿童绘本故事视频，配中英混合语音旁白。</strong><br>Turn custom English words into a coherent children’s picture-book story video with mixed Chinese-English narration.</p>
 
 ## 中文
 
-这是一个面向中文用户的 Codex 技能：把数量灵活的英语目标词编入一段连贯、有趣的儿童故事，并制作成完整的 720p 宽屏 MP4 视频。它将故事创作、插画生成与审核、中文旁白、目标词标、少量音效、Remotion 渲染和成片验收整合为一套可重复执行的工作流。
+这是一个面向中文用户的 Codex 技能：把数量灵活的英语目标词编入一段连贯、有趣的儿童故事，并制作成完整的 720p 宽屏 MP4 视频。默认故事约 5～6 分钟，以中文为主体，在旁白中自然保留目标英语单词。
 
 ### 主要能力
 
 - 先展示确认单，确认目标词和偏好后再开始制作。
-- 围绕目标词原创完整故事，避免把单词机械排列成句子。
+- 围绕目标词原创完整故事，默认按剧情安排约 22～25 幕，并用真实 TTS 在批量生图前检查时长。
 - 为每个项目建立专属角色和视觉设定，生成稳定的 16:9 儿童绘本插画。
+- 对关键动作明确主体、身体部位或工具、作用对象、接触、位置、方向和结果；普通背景与装饰保留创作自由。
+- 正式插画默认每批最多并行生成三个独立场景；连续动作、道具继承、前图依赖和重试自动转为串行计划。
 - 对插画进行比例检查和语义审核；不符合故事情景时最多额外重试两次，再选择偏差最小的候选图，并只允许轻微调整单幕故事或旁白。
-- 默认使用温和中文女声，让英语目标词自然保留在中文旁白中。
-- 使用大号半透明目标词标；目标词停顿默认是 `0` 秒，也可配置为 `0.3`、`1.0` 秒等跟读时间。
-- 添加克制的场景音效，不使用持续背景音乐干扰旁白。
+- 默认使用温和中文女声，生成中文主体、中英混合的语音旁白。
+- 读词后音频停顿默认是 `0` 秒，可独立配置；目标词从发音开始在对应人物或物体附近显示至少约 1.2 秒，并伴随轻微、舒适的呼吸式强调。
+- 自动生成自然完整的全中文故事名并朗读，标题音频结束后保留约 0.6 秒画面。
 - 使用 Remotion 输出固定 `1280×720`、`20fps`、H.264 + AAC 的 MP4。
-- 保存流程状态、输入指纹和 QA 证据，支持中断恢复，并在交付前进行技术验收和主观审查。
+- 保存流程状态、输入指纹和 QA 证据，支持中断恢复；最终渲染至少保留 20 分钟运行上限，并在交付前进行技术验收和主观审查。
 
 ### 安装
+
+推荐直接使用 Codex 提供的工作区运行时。手动准备环境时需要 Python 3.10 或更高版本、Node.js 22 或更高版本、pnpm 11、Chrome 或 Edge，并允许 TTS 服务访问网络；FFmpeg 会安装在每个视频项目自己的 Python 虚拟环境中。
 
 #### 方法一：让 Codex 自动安装（推荐）
 
@@ -70,7 +66,7 @@ git clone https://github.com/shxrise/kids-word-story-video.git "$env:USERPROFILE
 SKILL.md                    技能入口和核心工作流
 agents/openai.yaml          Codex 界面元数据
 scripts/                    项目创建、语音、审核、渲染和验收脚本
-references/                 故事、确认单、音效和 QA 规则
+references/                 故事、确认单和 QA 规则
 assets/remotion-template/   可复用的 Remotion 视频项目模板
 ```
 
@@ -82,21 +78,25 @@ assets/remotion-template/   可复用的 Remotion 视频项目模板
 
 ## English
 
-Kids Word Story Video is a Codex skill designed primarily for Chinese-speaking users. It turns a flexible list of English target words into a coherent, playful children's story and produces a complete 720p widescreen MP4. The skill combines story writing, illustration generation and review, Chinese narration, target-word overlays, light sound design, Remotion rendering, and final QA in one repeatable workflow.
+Kids Word Story Video is a Codex skill designed primarily for Chinese-speaking users. It turns a flexible list of English target words into a coherent, playful children’s story and produces a complete 720p widescreen MP4. A default story runs about 5–6 minutes and uses Chinese-led narration with the target English words spoken naturally in context.
 
 ### Key features
 
 - Shows a confirmation card before any production work begins.
-- Writes an original story around the target words instead of mechanically listing them.
+- Writes an original story around the target words, usually planning about 22–25 story-driven scenes, and checks real TTS duration before bulk illustration.
 - Creates a project-specific cast and visual bible for consistent 16:9 children's-book illustrations.
+- Describes plot-critical actions with an explicit actor, body part or tool, object, contact, position, direction, and result while leaving ordinary backgrounds flexible.
+- Generates up to three independent scene illustrations in parallel by default, with serial planning for continuity, inherited prop state, previous-image dependencies, and retries.
 - Checks image aspect ratios and semantics. If an image misses the story context, it allows up to two additional attempts, then selects the closest candidate and permits only a small scene-level narration adjustment.
-- Uses a gentle Chinese female voice by default while keeping English target words in the narration.
-- Displays large translucent target-word overlays. The default word pause is `0` seconds, with configurable read-along pauses such as `0.3` or `1.0` seconds.
-- Adds restrained scene sound effects without continuous background music competing with narration.
+- Uses a gentle Chinese female voice by default for Chinese-led, mixed Chinese-English narration.
+- Keeps post-word audio pauses independently configurable at a default of `0` seconds. Each target label appears near the matching person or object for at least about 1.2 seconds with a gentle breathing emphasis.
+- Creates and narrates a natural, complete Chinese story title, then holds the title picture for about 0.6 seconds after the title audio ends.
 - Renders a fixed `1280×720`, `20fps`, H.264 + AAC MP4 with Remotion.
-- Records pipeline state, input fingerprints, and QA evidence for resumable, verifiable delivery.
+- Records pipeline state, input fingerprints, and QA evidence for resumable, verifiable delivery, with at least a 20-minute final-render limit.
 
 ### Installation
+
+The Codex workspace runtime is recommended. A manually prepared environment needs Python 3.10+, Node.js 22+, pnpm 11, Chrome or Edge, and network access for TTS. FFmpeg is installed inside each generated video's Python virtual environment.
 
 #### Method 1: Ask Codex to install it (recommended)
 
@@ -134,7 +134,7 @@ The skill first presents a confirmation card. It does not create a project, gene
 SKILL.md                    Skill entry point and core workflow
 agents/openai.yaml          Codex UI metadata
 scripts/                    Project, speech, review, render, and QA tools
-references/                 Story, confirmation, sound, and QA rules
+references/                 Story, confirmation, and QA rules
 assets/remotion-template/   Reusable Remotion video project template
 ```
 
